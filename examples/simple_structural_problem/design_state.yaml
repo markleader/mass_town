@@ -1,0 +1,25 @@
+run_id: simple-structural-problem
+problem_name: simple_structural_problem
+status: pending
+iteration: 0
+design_variables:
+  thickness: 0.6
+  length: 10.0
+  width: 4.0
+loads:
+  force: 120.0
+constraints:
+  max_stress: 180.0
+geometry_state:
+  valid: true
+  notes: "seed geometry"
+mesh_state:
+  quality: 0.5
+  elements: 0
+analysis_state:
+  max_stress: null
+  passed: false
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

@@ -1,0 +1,8 @@
+max_iterations: 8
+allowable_stress: 180.0
+target_mesh_quality: 0.75
+initial_tasks:
+  - geometry
+  - mesh
+  - fea
+  - optimizer
