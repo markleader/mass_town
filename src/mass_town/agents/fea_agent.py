@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.adapters.fea_adapter import FEAAdapter
 from mass_town.config import WorkflowConfig
@@ -13,7 +15,7 @@ class FEAAgent(BaseAgent):
     def __init__(self) -> None:
         self.adapter = FEAAdapter()
 
-    def run(self, state: DesignState, config: WorkflowConfig) -> AgentResult:
+    def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         stress = self.adapter.compute_max_stress(
             force=state.loads.get("force", 0.0),
             thickness=state.design_variables.get("thickness", 0.1),
@@ -30,7 +32,10 @@ class FEAAgent(BaseAgent):
                 code="analysis.stress_exceeded",
                 message="Stress exceeds allowable limit.",
                 task=self.task_name,
-                details={"max_stress": round(stress, 3), "allowable": config.allowable_stress},
+                details={
+                    "max_stress": round(stress, 3),
+                    "allowable": config.allowable_stress,
+                },
             )
             return AgentResult(
                 status="failure",

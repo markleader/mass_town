@@ -7,9 +7,16 @@ from mass_town.storage.filesystem import ensure_directory
 
 class ArtifactStore:
     def record(self, run_root: Path, state: DesignState, artifacts: list[ArtifactRecord]) -> None:
-        artifact_dir = ensure_directory(run_root / "artifacts" / state.run_id)
+        ensure_directory(run_root / "artifacts" / state.run_id)
         for artifact in artifacts:
-            artifact_path = artifact_dir / Path(artifact.path).name
-            artifact_path.write_text(
+            artifact_path = run_root / artifact.path
+            ensure_directory(artifact_path.parent)
+            if not artifact_path.exists():
+                artifact_path.write_text(
+                    f"name: {artifact.name}\nkind: {artifact.kind}\nmetadata: {artifact.metadata}\n"
+                )
+
+            metadata_path = artifact_path.with_name(f"{artifact_path.name}.metadata.txt")
+            metadata_path.write_text(
                 f"name: {artifact.name}\nkind: {artifact.kind}\nmetadata: {artifact.metadata}\n"
             )

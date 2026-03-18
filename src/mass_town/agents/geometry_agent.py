@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from mass_town.adapters.geometry_adapter import GeometryAdapter
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
@@ -13,7 +15,7 @@ class GeometryAgent(BaseAgent):
     def __init__(self) -> None:
         self.adapter = GeometryAdapter()
 
-    def run(self, state: DesignState, config: WorkflowConfig) -> AgentResult:
+    def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         valid, message = self.adapter.validate(state.design_variables)
         if not valid:
             diagnostic = self.adapter.failure(message or "Geometry validation failed.")

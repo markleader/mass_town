@@ -13,3 +13,7 @@ Run it with:
 ```bash
 mass-town run examples/simple_structural_problem
 ```
+
+The example is pinned to the `mock` meshing backend so it runs without external
+meshing tools. To try the real `gmsh` plugin, point `meshing.geometry_input_path`
+at a `.step` file and set `meshing.tool: gmsh` or `meshing.tool: auto`.

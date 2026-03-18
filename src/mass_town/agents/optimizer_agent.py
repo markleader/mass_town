@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.adapters.optimizer_adapter import OptimizerAdapter
 from mass_town.config import WorkflowConfig
@@ -13,7 +15,7 @@ class OptimizerAgent(BaseAgent):
     def __init__(self) -> None:
         self.adapter = OptimizerAdapter()
 
-    def run(self, state: DesignState, config: WorkflowConfig) -> AgentResult:
+    def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         current = state.design_variables.get("thickness", 0.0)
         next_thickness = max(current, 0.8)
         if not state.analysis_state.passed:

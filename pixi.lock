@@ -528,7 +528,7 @@ packages:
 - pypi: ./
   name: mass-town
   version: 0.1.0
-  sha256: 145ad66a676b6af6eba8d2064e8f07e3fbf09c27b9de2facd7e69f63e126a117
+  sha256: b0ba597bbd9eda248f3aeb1d7a60da408dbd7f88237b9ac9f2ff345a53619d35
   requires_dist:
   - pydantic>=2.7,<3
   - pyyaml>=6.0

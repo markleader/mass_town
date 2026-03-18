@@ -31,4 +31,4 @@ pythonpath = ["src"]
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mass_town"]
+packages = ["src/mass_town", "plugins"]

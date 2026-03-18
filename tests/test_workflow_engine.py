@@ -12,7 +12,9 @@ def test_workflow_engine_recovers_example(tmp_path: Path) -> None:
             [
                 "max_iterations: 8",
                 "allowable_stress: 180.0",
-                "target_mesh_quality: 0.75",
+                "meshing:",
+                "  tool: mock",
+                "  target_quality: 0.75",
                 "initial_tasks:",
                 "  - geometry",
                 "  - mesh",

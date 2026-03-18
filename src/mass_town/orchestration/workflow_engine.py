@@ -53,7 +53,7 @@ class WorkflowEngine:
                 break
             state.iteration += 1
             logger.info("Running task %s", task_name)
-            result = self.agents[task_name].run(state, self.config)
+            result = self.agents[task_name].run(state, self.config, run_root)
             self._record_result(state, result)
             self.artifact_store.record(run_root, state, result.artifacts)
             if result.status == "failure" and result.diagnostics:

@@ -1,9 +1,9 @@
 run_id: simple-structural-problem
 problem_name: simple_structural_problem
-status: pending
-iteration: 0
+status: recovered
+iteration: 8
 design_variables:
-  thickness: 0.6
+  thickness: 1.0
   length: 10.0
   width: 4.0
 loads:
@@ -12,14 +12,109 @@ constraints:
   max_stress: 180.0
 geometry_state:
   valid: true
-  notes: "seed geometry"
+  notes: validated
 mesh_state:
-  quality: 0.5
-  elements: 0
+  quality: 1.0
+  elements: 5000
 analysis_state:
-  max_stress: null
-  passed: false
-diagnostics: []
-decision_history: []
-artifacts: []
-task_history: []
+  max_stress: 120.0
+  passed: true
+diagnostics:
+- code: mesh.poor_quality
+  message: Mesh quality is below the configured threshold.
+  severity: error
+  task: mesh
+  details:
+    quality: 0.7
+    target: 0.75
+- code: analysis.stress_exceeded
+  message: Stress exceeds allowable limit.
+  severity: error
+  task: fea
+  details:
+    max_stress: 200.0
+    allowable: 180.0
+decision_history:
+- iteration: 2
+  action: refine_mesh
+  reason: Mesh quality is too low for reliable analysis.
+- iteration: 4
+  action: increase_thickness
+  reason: The current design exceeds the allowable stress limit.
+artifacts:
+- name: geometry-summary
+  path: artifacts/simple-structural-problem/geometry.txt
+  kind: geometry_report
+  metadata:
+    valid: true
+- name: mesh-summary
+  path: artifacts/simple-structural-problem/mesh.txt
+  kind: mesh_report
+  metadata:
+    quality: 0.7
+    elements: 3800
+- name: mesh-summary
+  path: artifacts/simple-structural-problem/mesh.txt
+  kind: mesh_report
+  metadata:
+    quality: 1.0
+    elements: 5000
+- name: fea-summary
+  path: artifacts/simple-structural-problem/fea.txt
+  kind: analysis_report
+  metadata:
+    max_stress: 200.0
+- name: optimizer-summary
+  path: artifacts/simple-structural-problem/optimizer.txt
+  kind: optimizer_report
+  metadata:
+    thickness: 1.0
+- name: geometry-summary
+  path: artifacts/simple-structural-problem/geometry.txt
+  kind: geometry_report
+  metadata:
+    valid: true
+- name: mesh-summary
+  path: artifacts/simple-structural-problem/mesh.txt
+  kind: mesh_report
+  metadata:
+    quality: 1.0
+    elements: 5000
+- name: fea-summary
+  path: artifacts/simple-structural-problem/fea.txt
+  kind: analysis_report
+  metadata:
+    max_stress: 120.0
+task_history:
+- iteration: 1
+  task: geometry
+  status: success
+  message: Geometry validated.
+- iteration: 2
+  task: mesh
+  status: failure
+  message: Mesh quality is below the configured threshold.
+- iteration: 3
+  task: mesh
+  status: success
+  message: Mesh generated.
+- iteration: 4
+  task: fea
+  status: failure
+  message: Stress exceeds allowable limit.
+- iteration: 5
+  task: optimizer
+  status: success
+  message: Design variables updated.
+- iteration: 6
+  task: geometry
+  status: success
+  message: Geometry validated.
+- iteration: 7
+  task: mesh
+  status: success
+  message: Mesh generated.
+- iteration: 8
+  task: fea
+  status: success
+  message: Structural analysis passed.

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 from mass_town.config import WorkflowConfig
 from mass_town.models.design_state import DesignState
@@ -10,5 +11,5 @@ class BaseAgent(ABC):
     task_name: str
 
     @abstractmethod
-    def run(self, state: DesignState, config: WorkflowConfig) -> AgentResult:
+    def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         raise NotImplementedError
