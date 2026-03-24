@@ -48,8 +48,8 @@ Tools perform:
 - structural analysis
 - optimization updates
 
-Concrete tools can later be split behind discipline-specific plugin backends so
-core orchestration remains tool-agnostic.
+Concrete tools can be split behind discipline-specific plugin backends so core
+orchestration remains tool-agnostic. Meshing and FEA now follow this pattern.
 
 ---
 
@@ -181,7 +181,11 @@ mass_town/
 │ | ├── logging_utils.py
 │ │
 │ ├── disciplines/
-│ │ └── meshing/
+│ │ ├── meshing/
+│ │ │ ├── base.py
+│ │ │ ├── models.py
+│ │ │ └── registry.py
+│ │ └── fea/
 │ │   ├── base.py
 │ │   ├── models.py
 │ │   └── registry.py
@@ -222,7 +226,8 @@ mass_town/
 │
 ├── plugins/
 │ ├── gmsh/
-│ └── mock/
+│ ├── mock/
+│ └── tacs/
 │
 └── tests/
 ├── test_state_manager.py

@@ -1,0 +1,5 @@
+$ Minimal placeholder BDF for TACS-backed examples.
+$ Replace with a real structural model before running an actual TACS solve.
+CEND
+BEGIN BULK
+ENDDATA

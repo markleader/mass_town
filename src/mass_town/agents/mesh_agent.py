@@ -30,6 +30,7 @@ class MeshAgent(BaseAgent):
             ),
             output_directory=output_directory,
             run_id=state.run_id,
+            output_format=config.meshing.output_format,
             target_quality=config.meshing.target_quality,
         )
 

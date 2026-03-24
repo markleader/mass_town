@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -8,13 +9,22 @@ class MeshingConfig(BaseModel):
     tool: str = "auto"
     geometry_input_path: str | None = None
     gmsh_executable: str = "gmsh"
+    output_format: Literal["msh", "bdf"] = "msh"
     target_quality: float = 0.75
+
+
+class FEAConfig(BaseModel):
+    tool: str = "auto"
+    model_input_path: str | None = None
+    case_name: str = "static"
+    write_solution: bool = True
 
 
 class WorkflowConfig(BaseModel):
     max_iterations: int = 8
     allowable_stress: float = 180.0
     meshing: MeshingConfig = Field(default_factory=MeshingConfig)
+    fea: FEAConfig = Field(default_factory=FEAConfig)
     initial_tasks: list[str] = Field(
         default_factory=lambda: ["geometry", "mesh", "fea", "optimizer"]
     )

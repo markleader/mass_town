@@ -1,12 +1,16 @@
 import shutil
+import subprocess
 from pathlib import Path
 
 from mass_town.agents.mesh_agent import MeshAgent
 from mass_town.config import WorkflowConfig
-from mass_town.disciplines.meshing import resolve_meshing_backend
+from mass_town.disciplines.meshing import MeshingRequest, resolve_meshing_backend
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.storage.artifact_store import ArtifactStore
+from plugins.gmsh.backend import GmshMeshingBackend
+from plugins.gmsh.exporters.bdf import write_bdf
+from plugins.gmsh.extraction import parse_gmsh_msh2
 
 
 def _base_state() -> DesignState:
@@ -23,6 +27,13 @@ def test_config_preserves_legacy_target_mesh_quality() -> None:
     config = WorkflowConfig.model_validate({"target_mesh_quality": 0.82})
     assert config.meshing.target_quality == 0.82
     assert config.meshing.tool == "auto"
+    assert config.meshing.output_format == "msh"
+
+
+def test_config_parses_bdf_output_format() -> None:
+    config = WorkflowConfig.model_validate({"meshing": {"output_format": "bdf"}})
+
+    assert config.meshing.output_format == "bdf"
 
 
 def test_resolve_meshing_backend_prefers_gmsh_when_available(monkeypatch) -> None:
@@ -94,3 +105,280 @@ def test_artifact_store_preserves_existing_mesh_files(tmp_path: Path) -> None:
     assert artifact_path.read_text() == "mesh-data"
     metadata_path = artifact_path.with_name(f"{artifact_path.name}.metadata.txt")
     assert metadata_path.exists()
+
+
+def test_parse_and_write_bdf_for_simple_shell_mesh(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "shell.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['2 10 "skin"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+            ],
+            elements=[
+                "1 2 2 10 100 1 2 3",
+                "2 3 2 10 100 1 3 4 2",
+            ],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+    bdf_path = write_bdf(mesh, tmp_path / "shell.bdf")
+    text = bdf_path.read_text()
+
+    assert "$ REGION pid=1 gmsh_id=10 kind=shell name=skin" in text
+    assert "MAT1,1,1.0,0.3,0.0" in text
+    assert "PSHELL,1,1,1.0" in text
+    assert "GRID,1,,0,0,0" in text
+    assert "CTRIA3,1,1,1,2,3" in text
+    assert "CQUAD4,2,1,1,3,4,2" in text
+
+
+def test_parse_and_write_bdf_for_simple_solid_mesh(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "solid.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['3 20 "block"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 0 0 1",
+                "6 1 0 1",
+                "7 1 1 1",
+                "8 0 1 1",
+            ],
+            elements=[
+                "1 4 2 20 200 1 2 3 5",
+                "2 5 2 20 200 1 2 3 4 5 6 7 8",
+            ],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+    bdf_path = write_bdf(mesh, tmp_path / "solid.bdf")
+    text = bdf_path.read_text()
+
+    assert "$ REGION pid=1 gmsh_id=20 kind=solid name=block" in text
+    assert "PSOLID,1,1" in text
+    assert "CTETRA,1,1,1,2,3,5" in text
+    assert "CHEXA,2,1,1,2,3,4,5,6,7,8" in text
+
+
+def test_multiple_physical_groups_get_deterministic_pid_assignment(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "regions.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['2 20 "spar"', '2 10 "skin"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 2 0 0",
+            ],
+            elements=[
+                "2 2 2 20 200 2 5 3",
+                "1 2 2 10 100 1 2 3",
+            ],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+    bdf_path = write_bdf(mesh, tmp_path / "regions.bdf")
+    text = bdf_path.read_text()
+
+    assert "$ REGION pid=1 gmsh_id=10 kind=shell name=skin" in text
+    assert "$ REGION pid=2 gmsh_id=20 kind=shell name=spar" in text
+    assert "CTRIA3,1,1,1,2,3" in text
+    assert "CTRIA3,2,2,2,5,3" in text
+
+
+def test_unsupported_element_type_fails_clearly(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "unsupported.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=[],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 0 0 1",
+                "6 1 0 1",
+            ],
+            elements=["1 6 2 30 300 1 2 3 4 5 6"],
+        )
+    )
+
+    try:
+        parse_gmsh_msh2(mesh_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected unsupported element type failure")
+
+    assert "Unsupported gmsh element types for BDF export" in message
+    assert "type 6 (1 elements)" in message
+
+
+def test_unassigned_elements_export_to_unassigned_region(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "unassigned.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=[],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+            ],
+            elements=["1 2 2 0 100 1 2 3"],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+    bdf_path = write_bdf(mesh, tmp_path / "unassigned.bdf")
+    text = bdf_path.read_text()
+
+    assert "$ REGION pid=1 gmsh_id=none kind=shell name=UNASSIGNED" in text
+    assert "PSHELL,1,1,1.0" in text
+    assert "CTRIA3,1,1,1,2,3" in text
+
+
+def test_mixed_shell_and_solid_regions_export_successfully(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "mixed.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['2 10 "skin"', '3 20 "core"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 0 0 1",
+                "6 1 0 1",
+                "7 1 1 1",
+                "8 0 1 1",
+            ],
+            elements=[
+                "1 2 2 10 100 1 2 3",
+                "2 5 2 20 200 1 2 3 4 5 6 7 8",
+            ],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+    bdf_path = write_bdf(mesh, tmp_path / "mixed.bdf")
+    text = bdf_path.read_text()
+
+    assert "PSOLID,1,1" in text
+    assert "PSHELL,2,1,1.0" in text
+    assert "CTRIA3,1,2,1,2,3" in text
+    assert "CHEXA,2,1,1,2,3,4,5,6,7,8" in text
+
+
+def test_mixed_shell_and_solid_elements_in_one_group_fail(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "bad-mixed.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['2 10 "wing_skin"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 0 0 1",
+                "6 1 0 1",
+                "7 1 1 1",
+                "8 0 1 1",
+            ],
+            elements=[
+                "1 2 2 10 100 1 2 3",
+                "2 5 2 10 200 1 2 3 4 5 6 7 8",
+            ],
+        )
+    )
+
+    try:
+        parse_gmsh_msh2(mesh_path)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("Expected mixed-region failure")
+
+    assert "Physical group 'wing_skin' mixes shell and solid elements" in message
+
+
+def test_gmsh_backend_preserves_existing_msh_export(tmp_path: Path, monkeypatch) -> None:
+    geometry_path = tmp_path / "shape.step"
+    geometry_path.write_text("dummy")
+    backend = GmshMeshingBackend(executable="/usr/bin/true")
+
+    def fake_run(command: list[str], capture_output: bool, text: bool, check: bool) -> subprocess.CompletedProcess[str]:
+        assert command[-2] == "-o"
+        output_path = Path(command[-1])
+        output_path.write_text(
+            _msh_text(
+                physical_names=['2 10 "skin"'],
+                nodes=["1 0 0 0", "2 1 0 0", "3 1 1 0"],
+                elements=["1 2 2 10 100 1 2 3"],
+            )
+        )
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr("plugins.gmsh.backend.subprocess.run", fake_run)
+
+    result = backend.generate_mesh(
+        MeshingRequest(
+            geometry_input_path=geometry_path,
+            output_directory=tmp_path,
+            run_id="mesh-run",
+            output_format="msh",
+            target_quality=0.75,
+        )
+    )
+
+    assert result.mesh_path == tmp_path / "shape.msh"
+    assert result.mesh_path.read_text().startswith("$MeshFormat")
+    assert result.metadata["mesh_format"] == "msh"
+    assert result.element_count == 0
+
+
+def _msh_text(
+    *,
+    physical_names: list[str],
+    nodes: list[str],
+    elements: list[str],
+) -> str:
+    lines = [
+        "$MeshFormat",
+        "2.2 0 8",
+        "$EndMeshFormat",
+    ]
+    if physical_names:
+        lines.extend(
+            [
+                "$PhysicalNames",
+                str(len(physical_names)),
+                *physical_names,
+                "$EndPhysicalNames",
+            ]
+        )
+    lines.extend(
+        [
+            "$Nodes",
+            str(len(nodes)),
+            *nodes,
+            "$EndNodes",
+            "$Elements",
+            str(len(elements)),
+            *elements,
+            "$EndElements",
+            "",
+        ]
+    )
+    return "\n".join(lines)

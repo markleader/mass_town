@@ -1,10 +1,13 @@
 from pathlib import Path
 
 from mass_town.config import WorkflowConfig
+from mass_town.disciplines.fea.registry import BACKEND_LOADERS
 from mass_town.orchestration.workflow_engine import WorkflowEngine
+from tests.test_fea import StubFEABackend
 
 
-def test_workflow_engine_recovers_example(tmp_path: Path) -> None:
+def test_workflow_engine_recovers_example(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: StubFEABackend())
     project_dir = tmp_path / "example"
     project_dir.mkdir()
     (project_dir / "config.yaml").write_text(
@@ -15,6 +18,9 @@ def test_workflow_engine_recovers_example(tmp_path: Path) -> None:
                 "meshing:",
                 "  tool: mock",
                 "  target_quality: 0.75",
+                "fea:",
+                "  tool: tacs",
+                "  model_input_path: analysis/model.bdf",
                 "initial_tasks:",
                 "  - geometry",
                 "  - mesh",
@@ -56,6 +62,9 @@ def test_workflow_engine_recovers_example(tmp_path: Path) -> None:
             ]
         )
     )
+    analysis_dir = project_dir / "analysis"
+    analysis_dir.mkdir()
+    (analysis_dir / "model.bdf").write_text("CEND\nBEGIN BULK\nENDDATA\n")
 
     engine = WorkflowEngine(config=WorkflowConfig.from_file(project_dir / "config.yaml"))
     state = engine.run(project_dir / "design_state.yaml", project_dir)
