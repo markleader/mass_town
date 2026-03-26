@@ -11,7 +11,7 @@ variable: thickness.
 Run it with:
 
 ```bash
-mass-town run examples/simple_structural_problem
+pixi run -e fea mass-town run examples/simple_structural_problem
 ```
 
 This checked-in example now targets the real `tacs` FEA backend. Running the
@@ -30,7 +30,7 @@ an explicit reference config showing how to select the `tacs` backend:
 
 ```bash
 cp examples/simple_structural_problem/config.tacs.yaml examples/simple_structural_problem/config.yaml
-pixi run mass-town run examples/simple_structural_problem
+pixi run -e fea mass-town run examples/simple_structural_problem
 ```
 
 The TACS MVP expects `fea.model_input_path` to point to a `.bdf` structural

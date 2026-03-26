@@ -19,16 +19,49 @@ agents, and persists the evolving design state to disk.
 - Typer-based CLI
 - Example structural problem and unit tests
 
+## Pixi environments
+
+This repository uses three Pixi environments:
+
+- `default`: lightweight core development and tests
+- `mdao`: `default` plus OpenMDAO support
+- `fea`: `mdao` plus FEA-oriented tasks and local TACS wiring
+
+Pixi environments are selected one at a time. They are not mixed at runtime.
+Use `pixi run -e <env> ...` or `pixi shell -e <env>` explicitly.
+
 ## Quick start
 
 ```bash
-pixi install
-pixi run test
+pixi install -e default
+pixi run -e default test
 ```
 
-The test suite does not require optional solver installations. The checked-in
-structural example is now a TACS-backed workflow, so `pixi run run-example`
-requires TACS plus the sample `.bdf` input.
+Core tests run in `default` and do not require optional solver installations.
+
+OpenMDAO workflows use:
+
+```bash
+pixi install -e mdao
+pixi run -e mdao python -c "import openmdao.api as om; print(om.__version__)"
+```
+
+The checked-in structural workflow is TACS-backed and should be run from `fea`:
+
+```bash
+pixi install -e fea
+pixi run -e fea run-fea-example
+```
+
+TACS local wiring is intentionally explicit and local-only. The repository does
+not assume TACS is available automatically:
+
+```bash
+pixi run -e fea install-local-tacs
+```
+
+By default, `install-local-tacs` installs from `~/git/tacs`. Set `TACS_DIR` if
+your checkout is elsewhere.
 
 ## Repository layout
 
@@ -97,8 +130,8 @@ meshing:
 4. Run the workflow:
 
 ```bash
-pixi run mass-town run examples/simple_structural_problem
-pixi run mass-town status examples/simple_structural_problem/design_state.yaml
+pixi run -e fea mass-town run examples/simple_structural_problem
+pixi run -e fea mass-town status examples/simple_structural_problem/design_state.yaml
 ```
 
 If `gmsh` is explicitly selected but unavailable, MassTown will fail the mesh
@@ -168,7 +201,7 @@ fea:
 4. Run the workflow:
 
 ```bash
-pixi run mass-town run examples/simple_structural_problem
+pixi run -e fea mass-town run examples/simple_structural_problem
 ```
 
 If `tacs` is explicitly selected but unavailable, MassTown will fail the FEA
