@@ -19,6 +19,8 @@ The mesh agent now works through a discipline-level backend contract.
 2. Resolve a meshing backend through the registry.
 3. Generate a gmsh mesh artifact, then export either `.msh` or `.bdf`
    depending on `meshing.output_format`.
+4. When configured for planar-face STEP meshing, use the gmsh Python API to
+   select the largest planar face and generate a 2D shell mesh from that face.
 4. Persist mesh outputs and sidecar artifact metadata.
 5. Raise structured diagnostics if the selected backend is unavailable or fails.
 
@@ -35,7 +37,11 @@ The FEA agent now works through a discipline-level backend contract.
 1. Read normalized FEA config.
 2. Build an `FEARequest` from config, workflow state, and available mesh context.
 3. Resolve an FEA backend through the registry.
-4. Run analysis and persist normalized result metadata and output artifacts.
+4. If no explicit model path is configured and the mesh artifact is a `.bdf`,
+   use that generated mesh file as the solver input.
+5. For shell BDF inputs, build the TACS shell problem in code and apply
+   boundary conditions and nodal loads programmatically.
+6. Run analysis and persist normalized result metadata and output artifacts.
 5. Raise structured diagnostics if the selected backend is unavailable, the
    configured model input is missing, or the backend fails.
 

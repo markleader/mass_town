@@ -9,6 +9,8 @@ class MeshingConfig(BaseModel):
     tool: str = "auto"
     geometry_input_path: str | None = None
     gmsh_executable: str = "gmsh"
+    mesh_dimension: Literal[2, 3] = 3
+    step_face_selector: Literal["largest_planar"] | None = None
     output_format: Literal["msh", "bdf"] = "msh"
     target_quality: float = 0.75
 

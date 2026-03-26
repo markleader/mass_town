@@ -60,4 +60,7 @@ def _card_name(topology: str) -> str:
 
 
 def _format_float(value: float) -> str:
-    return f"{value:.16g}"
+    text = f"{value:.16g}"
+    if "e" in text.lower() or "." in text:
+        return text
+    return f"{text}.0"

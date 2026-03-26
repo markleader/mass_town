@@ -15,13 +15,16 @@ class FEAAgent(BaseAgent):
 
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         output_directory = ensure_directory(run_root / "artifacts" / state.run_id)
+        mesh_input_path = run_root / state.mesh_state.mesh_path if state.mesh_state.mesh_path else None
+        model_input_path = (
+            run_root / config.fea.model_input_path if config.fea.model_input_path else None
+        )
+        if model_input_path is None and mesh_input_path is not None and mesh_input_path.suffix.lower() == ".bdf":
+            model_input_path = mesh_input_path
+
         request = FEARequest(
-            model_input_path=(
-                run_root / config.fea.model_input_path if config.fea.model_input_path else None
-            ),
-            mesh_input_path=(
-                run_root / state.mesh_state.mesh_path if state.mesh_state.mesh_path else None
-            ),
+            model_input_path=model_input_path,
+            mesh_input_path=mesh_input_path,
             output_directory=output_directory,
             run_id=state.run_id,
             loads=state.loads,

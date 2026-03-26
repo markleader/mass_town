@@ -85,7 +85,7 @@ Meshing and FEA now use this split directly:
 - concrete FEA tools are loaded lazily from `plugins/`
 - `gmsh` is the first real meshing plugin
 - `tacs` is the first real FEA plugin
-- a deterministic `mock` backend keeps meshing runnable without `gmsh`
+- a deterministic `mock` backend keeps tests runnable without `gmsh`
 
 This keeps core MassTown free of hard dependencies on any one meshing or solver tool.
 
@@ -98,6 +98,8 @@ meshing:
   tool: auto
   geometry_input_path: geometry/model.step
   gmsh_executable: gmsh
+  mesh_dimension: 3
+  step_face_selector: null
   output_format: msh
   target_quality: 0.75
 ```
@@ -105,17 +107,14 @@ meshing:
 Backend selection rules:
 
 - `auto` tries `gmsh` first and falls back to `mock`
-- `gmsh` requires the external `gmsh` executable at runtime
+- `gmsh` supports executable-driven meshing and Python-API planar-face meshing
 - `gmsh` can emit either `.msh` or `.bdf` via `meshing.output_format`
-- `mock` is always available for tests and examples
-
-The checked-in example stays pinned to `mock` for meshing so `gmsh` is still
-optional when running the TACS-backed workflow.
+- `mock` is always available for tests
 
 ## Running with the `gmsh` plugin
 
-1. Install the `gmsh` executable and ensure it is on your `PATH`.
-2. Provide a `.step` geometry file.
+1. Install the `fea` Pixi environment so the gmsh Python package is available.
+2. Provide a STEP geometry file (`.step` or `.stp`).
 3. Update your project config:
 
 ```yaml
@@ -123,6 +122,8 @@ meshing:
   tool: gmsh
   geometry_input_path: geometry/model.step
   gmsh_executable: gmsh
+  mesh_dimension: 2
+  step_face_selector: largest_planar
   output_format: bdf
   target_quality: 0.75
 ```
@@ -150,15 +151,11 @@ Elements without a physical group are exported into an `UNASSIGNED` region.
 Current limitations:
 
 - only gmsh element types `2`, `3`, `4`, and `5` are supported for BDF export
-- loads and boundary conditions are not converted into BDF cards automatically
+- loads and boundary conditions are still handled downstream in solver setup
 - physical-group metadata is only preserved when it exists in the gmsh mesh
 
-A typical downstream flow is:
-
-1. define gmsh physical groups on the model you mesh
-2. set `meshing.output_format: bdf`
-3. run the mesh task or workflow to produce `artifacts/<run_id>/<name>.bdf`
-4. point the TACS backend or a pyTACS script at that exported BDF
+The checked-in structural example now uses this path directly, extracting the
+largest planar face from `examples/simple_structural_problem/crank.stp`.
 
 ## FEA backends
 
@@ -167,7 +164,7 @@ FEA configuration now lives under `fea:` in `config.yaml`.
 ```yaml
 fea:
   tool: auto
-  model_input_path: analysis/model.bdf
+  model_input_path: null
   case_name: static
   write_solution: true
 ```
@@ -176,8 +173,11 @@ Backend selection rules:
 
 - `auto` tries `tacs` and fails clearly if it is unavailable
 - `tacs` requires the optional TACS Python package at runtime
-- the TACS MVP expects a `.bdf` structural model input
-- the TACS MVP currently uses the load cases defined in that `.bdf`
+- the TACS backend expects a `.bdf` structural model input
+- if `fea.model_input_path` is omitted and meshing produced a `.bdf`, the FEA
+  agent will use that generated mesh artifact automatically
+- for shell meshes, the backend creates TACS shell elements in code and applies
+  boundary conditions and nodal loads programmatically
 
 Core MassTown never imports TACS eagerly, so the package still imports cleanly
 when TACS is not installed.
@@ -185,15 +185,13 @@ when TACS is not installed.
 ## Running with the `tacs` plugin
 
 1. Install TACS and its Python bindings in your environment.
-2. Provide a `.bdf` structural model file for the analysis case.
-   The current MVP expects loads and boundary conditions to be encoded in that
-   BDF model.
+2. Provide a `.bdf` structural model file for the analysis case, or let the
+   mesh step generate one for you.
 3. Update your project config:
 
 ```yaml
 fea:
   tool: tacs
-  model_input_path: analysis/model.bdf
   case_name: static
   write_solution: true
 ```

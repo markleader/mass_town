@@ -17,6 +17,8 @@ pytest = ">=8.0"
 openmdao = ">=3.30"
 
 [feature.fea.pypi-dependencies]
+gmsh = ">=4.13"
+imageio = ">=2.34"
 # Optional local editable install for a sibling TACS checkout.
 # Uncomment if your layout is:
 #   ~/git/mass_town
@@ -24,7 +26,7 @@ openmdao = ">=3.30"
 tacs = { path = "../tacs", editable = true }
 
 [feature.fea.tasks]
-# install-local-tacs = "python -m pip install -e \"${TACS_DIR:-$HOME/git/tacs}\""
+install-local-tacs = "python -m pip install -e \"${TACS_DIR:-$HOME/git/tacs}\""
 
 [environments]
 default = { features = [] }
