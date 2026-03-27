@@ -33,3 +33,136 @@ runtime session.
   and tasks defined in `pixi.toml`.
 - When adding or renaming a Pixi task, update all user-facing examples in the
   same change.
+
+
+## Engineering Hygiene & Infrastructure (Always-On Requirements)
+
+These rules apply to **every feature, example, and plugin update**. Do not defer them.
+
+---
+
+### 1. Testing requirements
+
+For any new capability:
+- Add at least one **minimal working example**
+- Add at least one **regression check**:
+  - does not need exact numerical match
+  - must verify key metrics (e.g., convergence, feasibility, trends)
+
+Always:
+- Ensure existing examples still run
+
+Do not merge features that break existing examples.
+
+---
+
+### 4. Problem definition consistency
+
+All examples must:
+- Follow a **consistent problem-definition structure**
+- Explicitly define:
+  - geometry source
+  - meshing settings
+  - analysis type
+  - boundary conditions and loads
+  - design variables
+  - objectives and constraints
+
+Avoid hard-coded logic that bypasses this structure.
+
+---
+
+### 5. Plugin boundaries must remain clean
+
+When adding or modifying functionality:
+- Do not introduce cross-dependencies between plugins
+- Do not place tool-specific logic outside its plugin
+
+Maintain clear interfaces between:
+- meshing ↔ FEA
+- FEA ↔ optimization
+
+If tool-specific assumptions leak into core code, refactor.
+
+---
+
+### 6. Named regions and metadata must persist
+
+Across CAD → mesh → FEA:
+- Preserve named regions or groups whenever possible
+- Ensure they are queryable downstream
+
+Do not discard metadata needed for:
+- boundary conditions
+- loads
+- design variable assignment
+
+---
+
+### 7. Failure handling is required
+
+For every workflow step:
+- Anticipate common failures:
+  - meshing failure
+  - invalid geometry
+  - solver divergence
+  - infeasible constraints
+
+Provide:
+- explicit error messages
+- structured failure outputs
+
+Do not rely on uncaught exceptions as the primary failure mechanism.
+
+---
+
+### 8. Performance awareness
+
+For new features:
+- Add basic timing for:
+  - meshing
+  - analysis
+  - optimization loop
+
+Identify obvious bottlenecks early.
+
+Do not optimize prematurely, but do not ignore scaling behavior.
+
+---
+
+### 9. Documentation expectations
+
+For any new capability:
+- Update or add:
+  - example usage
+  - assumptions and limitations
+  - `TODO.md`
+  - `ROADMAP.md`
+
+Keep documentation in the same PR as the code.
+
+If a feature cannot be understood from the example and docs, it is incomplete.
+
+---
+
+### 10. LLM integration constraints (when applicable)
+
+LLMs may:
+- generate plans
+- suggest workflow configurations
+- steer problems based on failure output
+
+LLMs must NOT:
+- modify numerical state directly
+
+---
+
+## Summary rule
+
+Every contribution must leave the system:
+- reproducible
+- debuggable
+- architecturally consistent
+- extensible for future workflows
+
+If a change improves capability but degrades one of the above, revise before merging.
