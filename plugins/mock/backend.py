@@ -14,7 +14,7 @@ class MockMeshingBackend(MeshingBackend):
         return None
 
     def generate_mesh(self, request: MeshingRequest) -> MeshingResult:
-        output_directory = ensure_directory(request.output_directory)
+        output_directory = ensure_directory(request.mesh_directory)
         geometry_stem = (
             request.geometry_input_path.stem
             if request.geometry_input_path is not None

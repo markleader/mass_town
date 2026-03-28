@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 
 class MeshingRequest(BaseModel):
     geometry_input_path: Path | None = None
-    output_directory: Path
+    mesh_directory: Path
+    log_directory: Path
     run_id: str
     mesh_dimension: Literal[2, 3] = 3
     step_face_selector: Literal["largest_planar"] | None = None

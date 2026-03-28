@@ -16,34 +16,37 @@ Build capability in layers. Prioritize deterministic solver and optimization inf
 
 ### Tasks
 
-* [ ] Preserve the current 2D plane-stress thickness-sizing example as the baseline regression case.
-* [ ] Document the exact assumptions of the baseline example:
+* [x] Preserve the current 2D plane-stress thickness-sizing example as the baseline regression case.
+* [x] Document the exact assumptions of the baseline example:
   * STEP input requirements
   * Gmsh meshing assumptions
   * BDF export assumptions
   * TACS-side BC and load application
   * objective / constraint definitions
 
-* [ ] Add a simple regression test that checks:
+* [x] Add a simple regression test that checks:
   * mesh generation succeeds
   * BDF export succeeds
   * TACS solve succeeds
   * optimization loop converges to a feasible design
 
-* [ ] Save key outputs for regression comparison:
+* [x] Save key outputs for regression comparison:
   * mass
   * max stress
   * final thickness
   * iteration count
   
-* [ ] Define a standard example folder layout for all future problems.
-* [ ] Define a standard result folder layout for logs, meshes, plots, and solution summaries.
+* [x] Define a standard example folder layout for all future problems.
+* [x] Define a standard result folder layout for logs, meshes, plots, and solution summaries.
 
 ### Deliverables
 
 * One stable baseline example
 * One regression test
 * Minimal documentation for reproducing the run
+
+Phase 0 is complete. The checked-in baseline example now defines the canonical
+example layout and emits a normalized `run_summary.json` for regression checks.
 
 ---
 

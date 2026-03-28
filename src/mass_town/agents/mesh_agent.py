@@ -11,7 +11,7 @@ from mass_town.disciplines.meshing import (
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.models.result import AgentResult, Diagnostic
-from mass_town.storage.filesystem import ensure_directory
+from mass_town.storage.filesystem import ensure_run_layout
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +21,15 @@ class MeshAgent(BaseAgent):
     task_name = "mesh"
 
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
-        output_directory = ensure_directory(run_root / "artifacts" / state.run_id)
+        layout = ensure_run_layout(run_root, state.run_id)
         request = MeshingRequest(
             geometry_input_path=(
                 run_root / config.meshing.geometry_input_path
                 if config.meshing.geometry_input_path
                 else None
             ),
-            output_directory=output_directory,
+            mesh_directory=layout.mesh_dir,
+            log_directory=layout.logs_dir,
             run_id=state.run_id,
             mesh_dimension=config.meshing.mesh_dimension,
             step_face_selector=config.meshing.step_face_selector,
@@ -109,7 +110,7 @@ class MeshAgent(BaseAgent):
                 name="mesh-output",
                 path=str(meshing_result.mesh_path.relative_to(run_root))
                 if meshing_result.mesh_path is not None
-                else f"artifacts/{state.run_id}/mesh-output.txt",
+                else f"results/{state.run_id}/mesh/mesh-output.txt",
                 kind="mesh_file",
                 metadata=metadata,
             )

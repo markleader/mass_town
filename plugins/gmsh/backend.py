@@ -47,9 +47,10 @@ class GmshMeshingBackend(MeshingBackend):
         if not geometry_path.exists():
             raise FileNotFoundError(f"Geometry input does not exist: {geometry_path}")
 
-        output_directory = ensure_directory(request.output_directory)
-        intermediate_mesh_path = output_directory / f"{geometry_path.stem}.msh"
-        log_path = output_directory / f"{geometry_path.stem}.gmsh.log"
+        mesh_directory = ensure_directory(request.mesh_directory)
+        log_directory = ensure_directory(request.log_directory)
+        intermediate_mesh_path = mesh_directory / f"{geometry_path.stem}.msh"
+        log_path = log_directory / f"{geometry_path.stem}.gmsh.log"
 
         if request.mesh_dimension == 2 and request.step_face_selector == "largest_planar":
             metadata = self._generate_planar_face_mesh(
@@ -73,7 +74,7 @@ class GmshMeshingBackend(MeshingBackend):
 
         if request.output_format == "bdf":
             normalized_mesh = parse_gmsh_msh2(intermediate_mesh_path)
-            output_path = write_bdf(normalized_mesh, output_directory / f"{geometry_path.stem}.bdf")
+            output_path = write_bdf(normalized_mesh, mesh_directory / f"{geometry_path.stem}.bdf")
             metadata.update(normalized_mesh.metadata)
             element_count = len(normalized_mesh.elements)
 

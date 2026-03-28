@@ -6,7 +6,9 @@ from pydantic import BaseModel, Field
 class FEARequest(BaseModel):
     model_input_path: Path | None = None
     mesh_input_path: Path | None = None
-    output_directory: Path
+    report_directory: Path
+    log_directory: Path
+    solution_directory: Path
     run_id: str
     loads: dict[str, float] = Field(default_factory=dict)
     design_variables: dict[str, float] = Field(default_factory=dict)
@@ -19,6 +21,7 @@ class FEARequest(BaseModel):
 class FEAResult(BaseModel):
     backend_name: str
     passed: bool
+    mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
     result_files: list[Path] = Field(default_factory=list)

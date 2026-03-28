@@ -23,6 +23,7 @@ class MeshState(BaseModel):
 class AnalysisState(BaseModel):
     backend: str | None = None
     result_path: str | None = None
+    mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
     passed: bool = False

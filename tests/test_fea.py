@@ -31,11 +31,12 @@ class StubFEABackend(FEABackend):
         if not request.model_input_path.exists():
             raise FileNotFoundError(f"FEA model input does not exist: {request.model_input_path}")
 
-        summary_path = self.result_path or request.output_directory / "stub-fea.json"
+        summary_path = self.result_path or request.report_directory / "stub-fea.json"
         summary_path.write_text('{"max_stress": 120.0}\n')
         return FEAResult(
             backend_name=self.name,
             passed=True,
+            mass=24.0,
             max_stress=120.0,
             displacement_norm=0.0125,
             result_files=[summary_path],
@@ -50,7 +51,7 @@ def _base_state() -> DesignState:
         design_variables={"thickness": 0.8},
         loads={"force": 120.0},
         constraints={"max_stress": 180.0},
-        mesh_state={"backend": "mock", "mesh_path": "artifacts/fea-run/mesh.msh", "quality": 0.9},
+        mesh_state={"backend": "mock", "mesh_path": "results/fea-run/mesh/mesh.msh", "quality": 0.9},
     )
 
 
@@ -119,15 +120,17 @@ def test_fea_agent_normalizes_backend_result(monkeypatch, tmp_path: Path) -> Non
 
     assert result.status == "success"
     assert result.updates["analysis_state"]["backend"] == "tacs"
+    assert result.updates["analysis_state"]["mass"] == 24.0
     assert result.updates["analysis_state"]["max_stress"] == 120.0
     assert result.updates["analysis_state"]["displacement_norm"] == 0.0125
-    assert result.updates["analysis_state"]["result_path"] == "artifacts/fea-run/stub-fea.json"
+    assert result.updates["analysis_state"]["result_path"] == "results/fea-run/reports/stub-fea.json"
     assert result.artifacts[0].metadata["backend"] == "tacs"
+    assert result.artifacts[0].metadata["mass"] == 24.0
     assert result.artifacts[0].metadata["failure_index"] == 2.0 / 3.0
 
 
 def test_fea_agent_uses_generated_bdf_when_model_path_is_omitted(monkeypatch, tmp_path: Path) -> None:
-    mesh_bdf = tmp_path / "artifacts" / "fea-run" / "mesh.bdf"
+    mesh_bdf = tmp_path / "results" / "fea-run" / "mesh" / "mesh.bdf"
     mesh_bdf.parent.mkdir(parents=True)
     mesh_bdf.write_text("CEND\nBEGIN BULK\nENDDATA\n")
     backend = StubFEABackend()
@@ -139,7 +142,7 @@ def test_fea_agent_uses_generated_bdf_when_model_path_is_omitted(monkeypatch, tm
         design_variables={"thickness": 0.8},
         loads={"force": 120.0},
         constraints={"max_stress": 180.0},
-        mesh_state={"backend": "gmsh", "mesh_path": "artifacts/fea-run/mesh.bdf", "quality": 0.9},
+        mesh_state={"backend": "gmsh", "mesh_path": "results/fea-run/mesh/mesh.bdf", "quality": 0.9},
     )
 
     result = FEAAgent().run(state, config, tmp_path)

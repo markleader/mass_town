@@ -27,6 +27,7 @@ tacs = { path = "../tacs", editable = true }
 
 [feature.fea.tasks]
 install-local-tacs = "python -m pip install -e \"${TACS_DIR:-$HOME/git/tacs}\""
+test-fea-baseline = "python -m pytest tests/test_phase0_baseline.py -q"
 
 [environments]
 default = { features = [] }

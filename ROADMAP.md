@@ -117,6 +117,9 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 * Single thickness design variable
 * Single constraint (max stress)
 * Deterministic optimization loop
+* Canonical example layout with checked-in inputs and generated `results/<run_id>/...`
+* Real `gmsh` + `TACS` baseline regression in the `fea` environment
+* Stable `run_summary.json` contract for baseline metrics and artifact paths
 
 ### Phase 1 — Structural sizing (near-term priority)
 

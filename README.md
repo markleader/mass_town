@@ -51,6 +51,7 @@ The checked-in structural workflow is TACS-backed and should be run from `fea`:
 ```bash
 pixi install -e fea
 pixi run -e fea run-fea-example
+pixi run -e fea test-fea-baseline
 ```
 
 TACS local wiring is intentionally explicit and local-only. The repository does
@@ -70,6 +71,15 @@ your checkout is elsewhere.
 - `docs/`: architecture, workflow, taxonomy, and roadmap notes
 - `examples/simple_structural_problem/`: runnable example input
 - `tests/`: unit tests for the core orchestration and CLI
+
+Example projects now follow a canonical Phase 0 layout:
+
+- root: `config.yaml`, `design_state.yaml`, `run_registry.yaml`
+- `inputs/`: geometry and other checked-in problem inputs
+- `results/<run_id>/logs`: workflow, gmsh, and solver logs
+- `results/<run_id>/mesh`: generated `.msh` / `.bdf` artifacts
+- `results/<run_id>/solver`: solver-native outputs such as `.f5`
+- `results/<run_id>/reports`: normalized summaries, including `run_summary.json`
 
 ## Discipline and plugin separation
 
@@ -155,7 +165,8 @@ Current limitations:
 - physical-group metadata is only preserved when it exists in the gmsh mesh
 
 The checked-in structural example now uses this path directly, extracting the
-largest planar face from `examples/simple_structural_problem/crank.stp`.
+largest planar face from
+`examples/simple_structural_problem/inputs/geometry/crank.stp`.
 
 ## FEA backends
 
@@ -204,6 +215,20 @@ pixi run -e fea mass-town run examples/simple_structural_problem
 
 If `tacs` is explicitly selected but unavailable, MassTown will fail the FEA
 task with a structured backend-unavailable diagnostic.
+
+## Baseline regression contract
+
+The Phase 0 baseline example writes a machine-readable summary to:
+
+`examples/simple_structural_problem/results/simple-structural-problem/reports/run_summary.json`
+
+That summary records the primary regression metrics:
+
+- mass
+- max stress
+- final thickness
+- iteration count
+- final pass/fail status
 
 ## Adding future meshing plugins
 

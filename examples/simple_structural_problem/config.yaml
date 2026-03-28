@@ -2,7 +2,7 @@ max_iterations: 11
 allowable_stress: 180.0
 meshing:
   tool: gmsh
-  geometry_input_path: crank.stp
+  geometry_input_path: inputs/geometry/crank.stp
   mesh_dimension: 2
   step_face_selector: largest_planar
   output_format: bdf

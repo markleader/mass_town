@@ -22,7 +22,7 @@ class OptimizerAgent(BaseAgent):
             next_thickness = self.adapter.increase_thickness(current)
         artifact = ArtifactRecord(
             name="optimizer-summary",
-            path=f"artifacts/{state.run_id}/optimizer.txt",
+            path=f"results/{state.run_id}/reports/optimizer_summary.txt",
             kind="optimizer_report",
             metadata={"thickness": next_thickness},
         )

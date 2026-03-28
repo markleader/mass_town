@@ -34,6 +34,28 @@ runtime session.
 - When adding or renaming a Pixi task, update all user-facing examples in the
   same change.
 
+## Current repo commands
+
+- Core validation uses `pixi run -e default test`.
+- OpenMDAO checks belong in `mdao`, for example
+  `pixi run -e mdao python -c "import openmdao.api as om; print(om.__version__)"`.
+- The checked-in structural baseline is TACS-backed; run it from `fea` with
+  `pixi run -e fea run-fea-example`.
+- The baseline regression check is `pixi run -e fea test-fea-baseline`.
+- Use `pixi run -e fea install-local-tacs` for local TACS wiring, with optional
+  `TACS_DIR` when the checkout is not under `~/git/tacs`.
+- Direct CLI entry points currently documented in the repo are
+  `pixi run -e fea mass-town run examples/simple_structural_problem` and
+  `pixi run -e fea mass-town status examples/simple_structural_problem/design_state.yaml`.
+
+## Current workflow outputs
+
+- Example runs write generated artifacts under `results/<run_id>/`.
+- Keep the standardized subdirectories consistent: `logs/`, `mesh/`,
+  `solver/`, and `reports/`.
+- Baseline regressions use `reports/run_summary.json` as the normalized summary
+  artifact and regression contract.
+
 
 ## Engineering Hygiene & Infrastructure (Always-On Requirements)
 

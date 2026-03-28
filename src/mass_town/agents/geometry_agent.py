@@ -28,7 +28,7 @@ class GeometryAgent(BaseAgent):
 
         artifact = ArtifactRecord(
             name="geometry-summary",
-            path=f"artifacts/{state.run_id}/geometry.txt",
+            path=f"results/{state.run_id}/reports/geometry_summary.txt",
             kind="geometry_report",
             metadata={"valid": True},
         )

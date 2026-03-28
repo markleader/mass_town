@@ -104,12 +104,12 @@ def test_mesh_agent_rejects_unsupported_gmsh_geometry(monkeypatch, tmp_path: Pat
 def test_artifact_store_preserves_existing_mesh_files(tmp_path: Path) -> None:
     run_root = tmp_path
     state = _base_state()
-    artifact_path = run_root / "artifacts" / state.run_id / "example.msh"
+    artifact_path = run_root / "results" / state.run_id / "mesh" / "example.msh"
     artifact_path.parent.mkdir(parents=True)
     artifact_path.write_text("mesh-data")
     artifact = ArtifactRecord(
         name="mesh-output",
-        path=f"artifacts/{state.run_id}/example.msh",
+        path=f"results/{state.run_id}/mesh/example.msh",
         kind="mesh_file",
         metadata={"backend": "mock"},
     )
@@ -349,7 +349,8 @@ def test_gmsh_backend_preserves_existing_msh_export(tmp_path: Path, monkeypatch)
     result = backend.generate_mesh(
         MeshingRequest(
             geometry_input_path=geometry_path,
-            output_directory=tmp_path,
+            mesh_directory=tmp_path,
+            log_directory=tmp_path,
             run_id="mesh-run",
             output_format="msh",
             target_quality=0.75,
@@ -375,7 +376,8 @@ def test_gmsh_backend_meshes_largest_planar_face_via_python_api(
     result = backend.generate_mesh(
         MeshingRequest(
             geometry_input_path=geometry_path,
-            output_directory=tmp_path,
+            mesh_directory=tmp_path,
+            log_directory=tmp_path,
             run_id="mesh-run",
             mesh_dimension=2,
             step_face_selector="largest_planar",

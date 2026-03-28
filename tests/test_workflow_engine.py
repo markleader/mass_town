@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from mass_town.config import WorkflowConfig
@@ -52,6 +53,7 @@ def test_workflow_engine_recovers_example(monkeypatch, tmp_path: Path) -> None:
                 "  quality: 0.5",
                 "  elements: 0",
                 "analysis_state:",
+                "  mass: null",
                 "  max_stress: null",
                 "  passed: false",
                 "diagnostics: []",
@@ -71,4 +73,11 @@ def test_workflow_engine_recovers_example(monkeypatch, tmp_path: Path) -> None:
 
     assert state.status == "recovered"
     assert state.analysis_state.passed is True
+    assert state.analysis_state.mass == 24.0
     assert state.design_variables["thickness"] >= 0.8
+    summary_path = project_dir / "results" / "test-run" / "reports" / "run_summary.json"
+    summary = json.loads(summary_path.read_text())
+    assert summary["status"] == "recovered"
+    assert summary["feasible"] is True
+    assert summary["mass"] == 24.0
+    assert summary["artifact_paths"]["analysis_summary"] == "results/test-run/reports/stub-fea.json"

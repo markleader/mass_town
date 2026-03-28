@@ -6,7 +6,7 @@ from mass_town.disciplines.fea import FEABackendError, FEARequest, resolve_fea_b
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.models.result import AgentResult, Diagnostic
-from mass_town.storage.filesystem import ensure_directory
+from mass_town.storage.filesystem import ensure_run_layout
 
 
 class FEAAgent(BaseAgent):
@@ -14,7 +14,7 @@ class FEAAgent(BaseAgent):
     task_name = "fea"
 
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
-        output_directory = ensure_directory(run_root / "artifacts" / state.run_id)
+        layout = ensure_run_layout(run_root, state.run_id)
         mesh_input_path = run_root / state.mesh_state.mesh_path if state.mesh_state.mesh_path else None
         model_input_path = (
             run_root / config.fea.model_input_path if config.fea.model_input_path else None
@@ -25,7 +25,9 @@ class FEAAgent(BaseAgent):
         request = FEARequest(
             model_input_path=model_input_path,
             mesh_input_path=mesh_input_path,
-            output_directory=output_directory,
+            report_directory=layout.reports_dir,
+            log_directory=layout.logs_dir,
+            solution_directory=layout.solver_dir,
             run_id=state.run_id,
             loads=state.loads,
             design_variables=state.design_variables,
@@ -98,6 +100,8 @@ class FEAAgent(BaseAgent):
                 "passed": fea_result.passed,
             }
         )
+        if fea_result.mass is not None:
+            metadata["mass"] = round(fea_result.mass, 6)
         if fea_result.max_stress is not None:
             metadata["max_stress"] = round(fea_result.max_stress, 6)
         if fea_result.displacement_norm is not None:
@@ -128,6 +132,7 @@ class FEAAgent(BaseAgent):
             "analysis_state": {
                 "backend": fea_result.backend_name,
                 "result_path": primary_result_path,
+                "mass": fea_result.mass,
                 "max_stress": fea_result.max_stress,
                 "displacement_norm": fea_result.displacement_norm,
                 "passed": passed,

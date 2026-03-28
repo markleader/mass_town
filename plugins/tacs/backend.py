@@ -36,9 +36,11 @@ class TacsFEABackend(FEABackend):
         if not model_path.exists():
             raise FileNotFoundError(f"FEA model input does not exist: {model_path}")
 
-        output_directory = ensure_directory(request.output_directory)
-        summary_path = output_directory / f"{model_path.stem}.tacs.summary.json"
-        log_path = output_directory / f"{model_path.stem}.tacs.log"
+        report_directory = ensure_directory(request.report_directory)
+        log_directory = ensure_directory(request.log_directory)
+        solution_directory = ensure_directory(request.solution_directory)
+        summary_path = report_directory / f"{model_path.stem}.tacs.summary.json"
+        log_path = log_directory / f"{model_path.stem}.tacs.log"
 
         pyTACS, functions, constitutive, elements, bdf_class = self._load_tacs_modules()
 
@@ -52,7 +54,7 @@ class TacsFEABackend(FEABackend):
                     functions=functions,
                     constitutive=constitutive,
                     elements=elements,
-                    output_directory=output_directory,
+                    output_directory=solution_directory,
                 )
             else:
                 analysis = self._run_bdf_analysis(
@@ -60,7 +62,7 @@ class TacsFEABackend(FEABackend):
                     model_path=model_path,
                     pyTACS=pyTACS,
                     functions=functions,
-                    output_directory=output_directory,
+                    output_directory=solution_directory,
                 )
         except Exception as exc:
             log_path.write_text(f"TACS analysis failed: {exc}\n")
@@ -72,6 +74,7 @@ class TacsFEABackend(FEABackend):
             "input_model": str(model_path),
             "load_source": analysis["load_source"],
             "loads": request.loads,
+            "mass": analysis["mass"],
             "failure_index": analysis["failure_index"],
             "max_stress": analysis["max_stress"],
             "displacement_norm": analysis["displacement_norm"],
@@ -100,6 +103,7 @@ class TacsFEABackend(FEABackend):
         return FEAResult(
             backend_name=self.name,
             passed=passed,
+            mass=analysis["mass"],
             max_stress=analysis["max_stress"],
             displacement_norm=analysis["displacement_norm"],
             result_files=[summary_path],
@@ -181,6 +185,7 @@ class TacsFEABackend(FEABackend):
             "case_name": request.case_name,
             "load_source": "script",
             "function_values": function_values,
+            "mass": self._extract_mass(function_values),
             "failure_index": failure_index,
             "max_stress": max_stress,
             "displacement_norm": self._extract_displacement_norm(problem),
@@ -223,6 +228,7 @@ class TacsFEABackend(FEABackend):
             "case_name": selected_name,
             "load_source": "bdf",
             "function_values": function_values,
+            "mass": self._extract_mass(function_values),
             "failure_index": failure_index,
             "max_stress": max_stress,
             "displacement_norm": self._extract_displacement_norm(problem),
@@ -318,6 +324,12 @@ class TacsFEABackend(FEABackend):
         for name, value in function_values.items():
             lowered = name.lower()
             if "failure" in lowered:
+                return float(value)
+        return None
+
+    def _extract_mass(self, function_values: dict[str, float]) -> float | None:
+        for name, value in function_values.items():
+            if "mass" in name.lower():
                 return float(value)
         return None
 

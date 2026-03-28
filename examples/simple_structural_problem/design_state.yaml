@@ -17,7 +17,9 @@ mesh_state:
   quality: 0.0
   elements: 0
 analysis_state:
+  mass: null
   max_stress: null
+  displacement_norm: null
   passed: false
 diagnostics: []
 decision_history: []

@@ -11,6 +11,10 @@ The prototype implements a deterministic supervision loop:
 
 This is intentionally a triage loop, not a single linear pipeline.
 
+Each run now writes generated outputs under `results/<run_id>/` with
+standardized `logs/`, `mesh/`, `solver/`, and `reports/` subdirectories. The
+final regression-friendly summary lives at `reports/run_summary.json`.
+
 ## Meshing workflow
 
 The mesh agent now works through a discipline-level backend contract.
@@ -21,7 +25,8 @@ The mesh agent now works through a discipline-level backend contract.
    depending on `meshing.output_format`.
 4. When configured for planar-face STEP meshing, use the gmsh Python API to
    select the largest planar face and generate a 2D shell mesh from that face.
-4. Persist mesh outputs and sidecar artifact metadata.
+5. Persist mesh outputs under `results/<run_id>/mesh` and write gmsh logs under
+   `results/<run_id>/logs`.
 5. Raise structured diagnostics if the selected backend is unavailable or fails.
 
 With `tool: auto`, the workflow prefers `gmsh` and falls back to `mock`.
@@ -41,8 +46,9 @@ The FEA agent now works through a discipline-level backend contract.
    use that generated mesh file as the solver input.
 5. For shell BDF inputs, build the TACS shell problem in code and apply
    boundary conditions and nodal loads programmatically.
-6. Run analysis and persist normalized result metadata and output artifacts.
-5. Raise structured diagnostics if the selected backend is unavailable, the
+6. Run analysis and persist normalized summaries under `results/<run_id>/reports`
+   plus solver-native outputs under `results/<run_id>/solver`.
+7. Raise structured diagnostics if the selected backend is unavailable, the
    configured model input is missing, or the backend fails.
 
 With `tool: auto`, the workflow prefers `tacs` when it is available.
