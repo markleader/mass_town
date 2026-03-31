@@ -1,0 +1,34 @@
+run_id: shell-sizing-bdf-problem
+problem_name: shell_sizing_bdf_problem
+status: pending
+iteration: 0
+design_variables:
+  thickness: 0.005
+  pid1_t: 0.005
+  pid2_t: 0.005
+  pid3_t: 0.005
+  pid4_t: 0.005
+  pid5_t: 0.005
+  pid6_t: 0.005
+  pid7_t: 0.005
+  pid8_t: 0.005
+  pid9_t: 0.005
+loads:
+  force: 10000.0
+constraints:
+  max_stress: 3000000000.0
+geometry_state:
+  valid: true
+  notes: bdf-first
+mesh_state:
+  quality: 0.0
+  elements: 0
+analysis_state:
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  passed: false
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

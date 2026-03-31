@@ -1,6 +1,7 @@
 import importlib
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 from mass_town.disciplines.fea import FEABackend, FEARequest, FEAResult
@@ -145,30 +146,57 @@ class TacsFEABackend(FEABackend):
     ) -> dict[str, Any]:
         node_positions = self._extract_node_positions(bdf_info)
         shell_elements = self._extract_shell_elements(bdf_info)
-        boundary_loops = find_boundary_loops(node_positions, shell_elements)
-        classified_loops = classify_boundary_loops(node_positions, boundary_loops)
+        constrained_nodes: list[int] = []
+        loaded_nodes: list[int] = []
+        load_mode = "none"
+        if self._has_explicit_spcs(bdf_info):
+            load_mode = "existing_spc"
+        else:
+            boundary_loops = find_boundary_loops(node_positions, shell_elements)
+            if len(boundary_loops) >= 3:
+                classified_loops = classify_boundary_loops(node_positions, boundary_loops)
+                constrained_nodes = classified_loops["left_bore"]
+                loaded_nodes = classified_loops["right_bore"]
+                bdf_info.add_spc1(1, "123456", constrained_nodes)
+                load_mode = "bore_loop"
+            else:
+                constrained_nodes = list(boundary_loops[0])
+                bdf_info.add_spc1(1, "123456", constrained_nodes)
+                load_mode = "outer_loop"
 
-        constrained_nodes = classified_loops["left_bore"]
-        loaded_nodes = classified_loops["right_bore"]
-        bdf_info.add_spc1(1, "123456", constrained_nodes)
+        shell_thickness = self._resolve_shell_thickness_assignments(
+            request,
+            request.model_input_path,
+            bdf_info,
+        )
 
         assembler = pyTACS(bdf_info)
         assembler.initialize(
             self._build_shell_element_callback(
                 constitutive=constitutive,
                 elements=elements,
-                thickness=float(request.design_variables.get("thickness", 1.0)),
+                default_thickness=shell_thickness["default_thickness"],
+                component_thickness=shell_thickness["component_thickness"],
                 allowable_stress=request.allowable_stress,
             )
         )
 
         problem = assembler.createStaticProblem(request.case_name)
         self._add_functions(problem, functions)
-        load_vectors = distribute_force_to_nodes(
-            loaded_nodes,
-            float(request.loads.get("force", 0.0)),
-        )
-        problem.addLoadToNodes(loaded_nodes, load_vectors, nastranOrdering=True)
+        force = float(request.loads.get("force", 0.0))
+        if force != 0.0:
+            if loaded_nodes:
+                load_vectors = distribute_force_to_nodes(loaded_nodes, force)
+                problem.addLoadToNodes(loaded_nodes, load_vectors, nastranOrdering=True)
+            else:
+                center_node = self._closest_node_to_centroid(node_positions)
+                problem.addLoadToNodes(
+                    [center_node],
+                    [[0.0, 0.0, force, 0.0, 0.0, 0.0]],
+                    nastranOrdering=True,
+                )
+                loaded_nodes = [center_node]
+                load_mode = "center_point"
         problem.solve()
 
         if request.write_solution and hasattr(problem, "writeSolution"):
@@ -192,6 +220,7 @@ class TacsFEABackend(FEABackend):
             "boundary_conditions": {
                 "constrained_node_count": len(constrained_nodes),
                 "loaded_node_count": len(loaded_nodes),
+                "load_mode": load_mode,
             },
         }
 
@@ -250,7 +279,8 @@ class TacsFEABackend(FEABackend):
         *,
         constitutive: Any,
         elements: Any,
-        thickness: float,
+        default_thickness: float,
+        component_thickness: dict[int, float],
         allowable_stress: float,
     ) -> Any:
         def elem_callback(
@@ -261,7 +291,8 @@ class TacsFEABackend(FEABackend):
             global_dvs: dict[str, Any],
             **kwargs: Any,
         ) -> tuple[list[Any], list[float]]:
-            del comp_id, comp_descript, global_dvs, kwargs
+            del comp_descript, global_dvs, kwargs
+            thickness = component_thickness.get(int(comp_id), default_thickness)
             material = constitutive.MaterialProperties(
                 rho=1.0,
                 E=70_000.0,
@@ -288,6 +319,105 @@ class TacsFEABackend(FEABackend):
             return element_objects, [1.0]
 
         return elem_callback
+
+    def _resolve_shell_thickness_assignments(
+        self,
+        request: FEARequest,
+        model_input_path: Path | None,
+        bdf_info: Any | None = None,
+    ) -> dict[str, Any]:
+        assignments = request.design_variable_assignments
+
+        default_thickness = float(
+            assignments.global_values.get("thickness", request.design_variables.get("thickness", 1.0))
+        )
+        region_pid_map = (
+            self._parse_region_pid_map(model_input_path, bdf_info)
+            if model_input_path is not None and model_input_path.exists()
+            else {}
+        )
+        element_pid_map = self._element_pid_map(bdf_info)
+        component_thickness: dict[int, float] = {}
+        for region_name, value in assignments.region_values.items():
+            pid = region_pid_map.get(region_name)
+            if pid is None:
+                available = ", ".join(sorted(region_pid_map)) or "none"
+                raise RuntimeError(
+                    f"Region-thickness assignment requested unknown BDF region '{region_name}'. "
+                    f"Available regions: {available}."
+                )
+            component_thickness[int(pid)] = float(value)
+
+        for element_id, value in assignments.element_values.items():
+            pid = element_pid_map.get(int(element_id))
+            if pid is None:
+                raise RuntimeError(
+                    f"Element-thickness assignment requested unknown element id '{element_id}'."
+                )
+            current = component_thickness.get(pid)
+            requested = float(value)
+            if current is not None and abs(current - requested) > 1e-12:
+                raise RuntimeError(
+                    f"Element-thickness assignments for PID {pid} are inconsistent. "
+                    "This BDF is component-grouped; use consistent element values per PID "
+                    "or prefer region/PID thickness design variables."
+                )
+            component_thickness[pid] = requested
+
+        return {
+            "default_thickness": default_thickness,
+            "component_thickness": component_thickness,
+        }
+
+    def _parse_region_pid_map(self, path: Path, bdf_info: Any | None = None) -> dict[str, int]:
+        pattern = re.compile(r"^\$\s+REGION\s+pid=(?P<pid>\d+).*\sname=(?P<name>\S+)\s*$")
+        mapping: dict[str, int] = {}
+        for line in path.read_text().splitlines():
+            match = pattern.match(line.strip())
+            if match is None:
+                continue
+            mapping[match.group("name")] = int(match.group("pid"))
+        if mapping:
+            return mapping
+        if bdf_info is None:
+            return mapping
+        for element in bdf_info.elements.values():
+            pid = getattr(element, "pid", None)
+            if pid is None:
+                continue
+            mapping[f"pid_{int(pid)}"] = int(pid)
+        return mapping
+
+    def _element_pid_map(self, bdf_info: Any | None) -> dict[int, int]:
+        if bdf_info is None:
+            return {}
+        mapping: dict[int, int] = {}
+        for element_id, element in bdf_info.elements.items():
+            pid = getattr(element, "pid", None)
+            if pid is None:
+                continue
+            mapping[int(element_id)] = int(pid)
+        return mapping
+
+    def _has_explicit_spcs(self, bdf_info: Any) -> bool:
+        spcs = getattr(bdf_info, "spcs", {})
+        spcadds = getattr(bdf_info, "spcadds", {})
+        return bool(spcs) or bool(spcadds)
+
+    def _closest_node_to_centroid(self, node_positions: dict[int, tuple[float, float, float]]) -> int:
+        if not node_positions:
+            raise RuntimeError("No shell nodes available for load application.")
+        cx = sum(position[0] for position in node_positions.values()) / len(node_positions)
+        cy = sum(position[1] for position in node_positions.values()) / len(node_positions)
+        cz = sum(position[2] for position in node_positions.values()) / len(node_positions)
+        return min(
+            node_positions,
+            key=lambda node_id: (
+                (node_positions[node_id][0] - cx) ** 2
+                + (node_positions[node_id][1] - cy) ** 2
+                + (node_positions[node_id][2] - cz) ** 2
+            ),
+        )
 
     def _extract_node_positions(self, bdf_info: Any) -> dict[int, tuple[float, float, float]]:
         positions: dict[int, tuple[float, float, float]] = {}

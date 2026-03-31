@@ -124,6 +124,7 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 ### Phase 1 — Structural sizing (near-term priority)
 
 * Shell element support
+* BDF-first shell sizing example (`examples/shell_sizing_bdf_problem`)
 * Multiple design variables (region-wise or element-wise thickness)
 * Multiple load cases
 * Constraint aggregation (KS or p-norm)

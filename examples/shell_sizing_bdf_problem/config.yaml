@@ -1,0 +1,101 @@
+max_iterations: 6
+allowable_stress: 3000000000.0
+fea:
+  tool: tacs
+  model_input_path: inputs/model/plate.bdf
+  case_name: plate_static
+  write_solution: true
+design_variables:
+  - id: pid1_t
+    name: PID 1 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_1
+    active: true
+  - id: pid2_t
+    name: PID 2 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_2
+    active: true
+  - id: pid3_t
+    name: PID 3 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_3
+    active: true
+  - id: pid4_t
+    name: PID 4 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_4
+    active: true
+  - id: pid5_t
+    name: PID 5 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_5
+    active: true
+  - id: pid6_t
+    name: PID 6 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_6
+    active: true
+  - id: pid7_t
+    name: PID 7 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_7
+    active: true
+  - id: pid8_t
+    name: PID 8 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_8
+    active: true
+  - id: pid9_t
+    name: PID 9 Thickness
+    type: region_thickness
+    initial_value: 0.005
+    bounds:
+      lower: 0.001
+      upper: 0.02
+    units: m
+    region: pid_9
+    active: true
+initial_tasks:
+  - fea
+  - optimizer

@@ -2,7 +2,12 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from mass_town.design_variables import (
+    DesignVariableDefinition,
+    ensure_unique_design_variable_definitions,
+)
 
 
 class MeshingConfig(BaseModel):
@@ -27,9 +32,17 @@ class WorkflowConfig(BaseModel):
     allowable_stress: float = 180.0
     meshing: MeshingConfig = Field(default_factory=MeshingConfig)
     fea: FEAConfig = Field(default_factory=FEAConfig)
+    design_variables: list[DesignVariableDefinition] = Field(default_factory=list)
     initial_tasks: list[str] = Field(
         default_factory=lambda: ["geometry", "mesh", "fea", "optimizer"]
     )
+
+    @field_validator("design_variables")
+    @classmethod
+    def _validate_design_variables(
+        cls, value: list[DesignVariableDefinition]
+    ) -> list[DesignVariableDefinition]:
+        return ensure_unique_design_variable_definitions(value)
 
     @model_validator(mode="before")
     @classmethod

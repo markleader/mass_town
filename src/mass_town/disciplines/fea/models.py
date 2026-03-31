@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from mass_town.design_variables import DesignVariableAssignments
+
 
 class FEARequest(BaseModel):
     model_input_path: Path | None = None
@@ -12,6 +14,9 @@ class FEARequest(BaseModel):
     run_id: str
     loads: dict[str, float] = Field(default_factory=dict)
     design_variables: dict[str, float] = Field(default_factory=dict)
+    design_variable_assignments: DesignVariableAssignments = Field(
+        default_factory=DesignVariableAssignments
+    )
     constraints: dict[str, float] = Field(default_factory=dict)
     allowable_stress: float
     case_name: str = "static"

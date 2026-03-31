@@ -1,11 +1,14 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from mass_town.agents.fea_agent import FEAAgent
 from mass_town.config import WorkflowConfig
+from mass_town.design_variables import DesignVariableType
 from mass_town.disciplines.fea import FEABackend, FEABackendError, FEARequest, FEAResult
 from mass_town.disciplines.fea.registry import BACKEND_LOADERS, resolve_fea_backend
 from mass_town.models.design_state import DesignState
 from plugins.tacs.shell_model import classify_boundary_loops, distribute_force_to_nodes, find_boundary_loops
+from plugins.tacs.backend import TacsFEABackend
 
 
 class StubFEABackend(FEABackend):
@@ -64,6 +67,27 @@ def test_config_parses_fea_settings() -> None:
     assert config.fea.model_input_path == "analysis/model.bdf"
     assert config.fea.case_name == "wing"
     assert config.fea.write_solution is True
+
+
+def test_config_parses_design_variable_settings() -> None:
+    config = WorkflowConfig.model_validate(
+        {
+            "design_variables": [
+                {
+                    "id": "thickness",
+                    "name": "Global Thickness",
+                    "type": "scalar_thickness",
+                    "initial_value": 0.8,
+                    "bounds": {"lower": 0.1, "upper": 2.0},
+                    "active": True,
+                }
+            ]
+        }
+    )
+
+    assert len(config.design_variables) == 1
+    assert config.design_variables[0].id == "thickness"
+    assert config.design_variables[0].type == DesignVariableType.scalar_thickness
 
 
 def test_resolve_fea_backend_prefers_tacs_when_available(monkeypatch) -> None:
@@ -152,6 +176,98 @@ def test_fea_agent_uses_generated_bdf_when_model_path_is_omitted(monkeypatch, tm
     assert backend.last_request.model_input_path == mesh_bdf
 
 
+def test_fea_agent_forwards_mapped_design_variables(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text(
+        "\n".join(
+            [
+                "$ REGION pid=1 gmsh_id=10 kind=shell name=skin",
+                "CEND",
+                "BEGIN BULK",
+                "CTRIA3,10,1,1,2,3",
+                "ENDDATA",
+            ]
+        )
+        + "\n"
+    )
+    backend = StubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {"tool": "tacs", "model_input_path": "analysis/model.bdf"},
+            "design_variables": [
+                {
+                    "id": "thickness",
+                    "name": "Global Thickness",
+                    "type": "scalar_thickness",
+                    "initial_value": 0.8,
+                    "bounds": {"lower": 0.1, "upper": 2.0},
+                    "active": True,
+                },
+                {
+                    "id": "skin_t",
+                    "name": "Skin Thickness",
+                    "type": "region_thickness",
+                    "initial_value": 0.9,
+                    "bounds": {"lower": 0.1, "upper": 2.0},
+                    "region": "skin",
+                    "active": True,
+                },
+            ],
+        }
+    )
+    state = DesignState(
+        run_id="fea-run",
+        problem_name="structural",
+        design_variables={"thickness": 0.85, "skin_t": 0.95},
+        loads={"force": 120.0},
+        constraints={"max_stress": 180.0},
+        mesh_state={"backend": "gmsh", "mesh_path": "results/fea-run/mesh/mesh.bdf", "quality": 0.9},
+    )
+
+    result = FEAAgent().run(state, config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert backend.last_request.design_variable_assignments.global_values == {"thickness": 0.85}
+    assert backend.last_request.design_variable_assignments.region_values == {"skin": 0.95}
+
+
+def test_fea_agent_reports_design_variable_mapping_failures(tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nCTRIA3,10,1,1,2,3\nENDDATA\n")
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {"tool": "mock", "model_input_path": "analysis/model.bdf"},
+            "design_variables": [
+                {
+                    "id": "skin_t",
+                    "name": "Skin Thickness",
+                    "type": "region_thickness",
+                    "initial_value": 0.9,
+                    "bounds": {"lower": 0.1, "upper": 2.0},
+                    "region": "skin",
+                    "active": True,
+                }
+            ],
+        }
+    )
+    state = DesignState(
+        run_id="fea-run",
+        problem_name="structural",
+        design_variables={"skin_t": 0.95},
+        loads={"force": 120.0},
+        constraints={"max_stress": 180.0},
+    )
+
+    result = FEAAgent().run(state, config, tmp_path)
+
+    assert result.status == "failure"
+    assert result.diagnostics[0].code == "design_variables.mapping_failed"
+
+
 def test_shell_boundary_loop_detection_and_classification() -> None:
     node_positions = {
         node_id: (float(x), float(y), 0.0)
@@ -226,3 +342,34 @@ def test_distribute_force_to_nodes_preserves_total_force() -> None:
     assert len(loads) == 3
     assert sum(load[1] for load in loads) == -120.0
     assert all(load[0] == 0.0 for load in loads)
+
+
+def test_tacs_backend_maps_elementwise_thickness_assignments_to_component_thickness(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    model_path = tmp_path / "model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    bdf_info = SimpleNamespace(
+        elements={
+            1: SimpleNamespace(pid=7),
+            2: SimpleNamespace(pid=8),
+        }
+    )
+    request = FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path,
+        log_directory=tmp_path,
+        solution_directory=tmp_path,
+        run_id="tacs-run",
+        design_variables={"thickness": 0.8},
+        design_variable_assignments={
+            "element_values": {1: 0.9},
+        },
+        allowable_stress=180.0,
+    )
+
+    assignments = backend._resolve_shell_thickness_assignments(
+        request,
+        request.model_input_path,
+        bdf_info,
+    )
+    assert assignments["component_thickness"] == {7: 0.9}

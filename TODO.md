@@ -61,23 +61,23 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 1.1 Design variable abstraction
 
-* [ ] Create a generic design-variable interface independent of any one example.
-* [ ] Support at least these DV types:
+* [x] Create a generic design-variable interface independent of any one example.
+* [x] Support at least these DV types:
   * scalar thickness
   * region-wise thickness
   * element-wise thickness
 
-* [ ] Define a DV-to-analysis mapping layer so the optimizer does not directly manipulate solver internals.
-* [ ] Add bounds and initial values handling.
-* [ ] Add per-DV metadata such as name, region, units, and active/inactive status.
+* [x] Define a DV-to-analysis mapping layer so the optimizer does not directly manipulate solver internals.
+* [x] Add bounds and initial values handling.
+* [x] Add per-DV metadata such as name, region, units, and active/inactive status.
 
 #### 1.2 Shell sizing example
 
-* [ ] Add a shell-element structural example.
+* [x] Add a shell-element structural example.
 * [ ] Define a shell meshing path in the meshing plugin.
-* [ ] Define shell property assignment in the FEA plugin.
-* [ ] Use multiple thickness design variables, not just one scalar thickness.
-* [ ] Verify stresses and mass trends behave as expected.
+* [x] Define shell property assignment in the FEA plugin.
+* [x] Use multiple thickness design variables, not just one scalar thickness.
+* [x] Verify stresses and mass trends behave as expected.
 
 #### 1.3 Multiple load cases
 

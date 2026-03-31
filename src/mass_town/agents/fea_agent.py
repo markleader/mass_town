@@ -2,6 +2,14 @@ from pathlib import Path
 
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
+from mass_town.design_variables import (
+    DesignVariableContext,
+    DesignVariableMappingError,
+    bdf_design_variable_context,
+    map_design_variables_to_analysis,
+    resolved_design_variable_definitions,
+    resolved_design_variable_values,
+)
 from mass_town.disciplines.fea import FEABackendError, FEARequest, resolve_fea_backend
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
@@ -22,6 +30,37 @@ class FEAAgent(BaseAgent):
         if model_input_path is None and mesh_input_path is not None and mesh_input_path.suffix.lower() == ".bdf":
             model_input_path = mesh_input_path
 
+        definitions = resolved_design_variable_definitions(
+            config.design_variables,
+            state.design_variables,
+        )
+        resolved_values = resolved_design_variable_values(definitions, state.design_variables)
+        mapping_context = (
+            bdf_design_variable_context(model_input_path)
+            if model_input_path is not None and model_input_path.suffix.lower() == ".bdf"
+            else bdf_design_variable_context(mesh_input_path)
+            if mesh_input_path is not None and mesh_input_path.suffix.lower() == ".bdf"
+            else DesignVariableContext()
+        )
+        try:
+            mapped_design_variables = map_design_variables_to_analysis(
+                definitions,
+                resolved_values,
+                mapping_context,
+            )
+        except DesignVariableMappingError as exc:
+            diagnostic = Diagnostic(
+                code="design_variables.mapping_failed",
+                message=str(exc),
+                task=self.task_name,
+            )
+            return AgentResult(
+                status="failure",
+                task=self.task_name,
+                message=diagnostic.message,
+                diagnostics=[diagnostic],
+            )
+
         request = FEARequest(
             model_input_path=model_input_path,
             mesh_input_path=mesh_input_path,
@@ -30,7 +69,8 @@ class FEAAgent(BaseAgent):
             solution_directory=layout.solver_dir,
             run_id=state.run_id,
             loads=state.loads,
-            design_variables=state.design_variables,
+            design_variables=resolved_values,
+            design_variable_assignments=mapped_design_variables,
             constraints=state.constraints,
             allowable_stress=config.allowable_stress,
             case_name=config.fea.case_name,

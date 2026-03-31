@@ -7,6 +7,7 @@ from mass_town.agents.geometry_agent import GeometryAgent
 from mass_town.agents.mesh_agent import MeshAgent
 from mass_town.agents.optimizer_agent import OptimizerAgent
 from mass_town.config import WorkflowConfig
+from mass_town.design_variables import resolved_design_variable_definitions
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState, TaskRecord
 from mass_town.models.result import AgentResult
@@ -126,6 +127,15 @@ class WorkflowEngine:
     def _write_run_summary(self, state: DesignState, run_root: Path) -> Path:
         layout = ensure_run_layout(run_root, state.run_id)
         summary_path = layout.reports_dir / "run_summary.json"
+        definitions = resolved_design_variable_definitions(
+            self.config.design_variables,
+            state.design_variables,
+        )
+        active_design_variables = {
+            definition.id: state.design_variables.get(definition.id, definition.initial_value)
+            for definition in definitions
+            if definition.active
+        }
         latest_mesh_path = state.mesh_state.mesh_path
         analysis_log_path = self._latest_artifact_metadata_value(state, "fea-summary", "log_path")
         mesh_log_path = self._latest_artifact_metadata_value(state, "mesh-output", "log_path")
@@ -136,6 +146,8 @@ class WorkflowEngine:
             "feasible": state.status == "recovered" and state.analysis_state.passed,
             "iteration_count": state.iteration,
             "final_thickness": state.design_variables.get("thickness"),
+            "design_variables": state.design_variables,
+            "active_design_variables": active_design_variables,
             "mass": state.analysis_state.mass,
             "max_stress": state.analysis_state.max_stress,
             "allowable_stress": self.config.allowable_stress,

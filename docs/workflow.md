@@ -52,3 +52,15 @@ The FEA agent now works through a discipline-level backend contract.
    configured model input is missing, or the backend fails.
 
 With `tool: auto`, the workflow prefers `tacs` when it is available.
+
+## Design-variable workflow
+
+Design variables are now config-defined and validated during config load.
+
+1. Read `design_variables` definitions from `config.yaml`.
+2. Resolve runtime DV values from persisted state with initial-value fallback.
+3. Clamp values to DV bounds before optimizer and analysis hand-off.
+4. Map DVs into normalized analysis assignments grouped by scope:
+   global, region, and element.
+5. Fail fast with structured diagnostics when DV selectors do not match the
+   analysis model metadata (for example unknown regions or elements).

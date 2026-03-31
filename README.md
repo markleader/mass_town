@@ -51,7 +51,9 @@ The checked-in structural workflow is TACS-backed and should be run from `fea`:
 ```bash
 pixi install -e fea
 pixi run -e fea run-fea-example
+pixi run -e fea run-shell-bdf-example
 pixi run -e fea test-fea-baseline
+pixi run -e fea test-shell-bdf-example
 ```
 
 TACS local wiring is intentionally explicit and local-only. The repository does
@@ -70,6 +72,7 @@ your checkout is elsewhere.
 - `plugins/`: optional tool plugins such as `gmsh` and built-in mock backends
 - `docs/`: architecture, workflow, taxonomy, and roadmap notes
 - `examples/simple_structural_problem/`: runnable example input
+- `examples/shell_sizing_bdf_problem/`: BDF-first shell sizing example
 - `tests/`: unit tests for the core orchestration and CLI
 
 Example projects now follow a canonical Phase 0 layout:
@@ -192,6 +195,36 @@ Backend selection rules:
 
 Core MassTown never imports TACS eagerly, so the package still imports cleanly
 when TACS is not installed.
+
+## Design variables
+
+Design-variable definitions can now be provided in `config.yaml` under
+`design_variables:` and are validated on load.
+
+```yaml
+design_variables:
+  - id: thickness
+    name: Global Thickness
+    type: scalar_thickness
+    initial_value: 0.8
+    bounds:
+      lower: 0.1
+      upper: 2.0
+    units: mm
+    active: true
+```
+
+Supported DV types:
+
+- `scalar_thickness`
+- `region_thickness` (requires `region`)
+- `element_thickness` (requires `element_ids`)
+
+The workflow maps active DVs into normalized analysis assignments (`global`,
+`region`, `element`) before calling solver backends.
+
+For BDF inputs without `$ REGION ...` comments, region selectors can use
+synthetic names in the form `pid_<PID>`.
 
 ## Running with the `tacs` plugin
 
