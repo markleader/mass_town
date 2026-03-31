@@ -164,7 +164,8 @@ Elements without a physical group are exported into an `UNASSIGNED` region.
 Current limitations:
 
 - only gmsh element types `2`, `3`, `4`, and `5` are supported for BDF export
-- loads and boundary conditions are still handled downstream in solver setup
+- shell loads and boundary conditions must still be configured downstream in
+  solver setup
 - physical-group metadata is only preserved when it exists in the gmsh mesh
 
 The checked-in structural example now uses this path directly, extracting the
@@ -181,6 +182,7 @@ fea:
   model_input_path: null
   case_name: static
   write_solution: true
+  shell_setup: null
 ```
 
 Backend selection rules:
@@ -191,7 +193,35 @@ Backend selection rules:
 - if `fea.model_input_path` is omitted and meshing produced a `.bdf`, the FEA
   agent will use that generated mesh artifact automatically
 - for shell meshes, the backend creates TACS shell elements in code and applies
-  boundary conditions and nodal loads programmatically
+  boundary conditions and nodal loads from `fea.shell_setup`
+
+Shell selector setup for generated shell models lives with the example or
+problem definition, not inside `plugins/tacs`. A minimal example:
+
+```yaml
+fea:
+  tool: tacs
+  shell_setup:
+    node_sets:
+      fixed_edge:
+        selector: boundary_loop
+        family: outer
+        order_by: area
+        index: 0
+      loaded_edge:
+        selector: boundary_loop
+        family: inner
+        order_by: centroid_x
+        index: 1
+    boundary_conditions:
+      - node_set: fixed_edge
+        dof: "123456"
+    loads:
+      - node_set: loaded_edge
+        load_key: force
+        direction: [0.0, -1.0, 0.0]
+        distribution: equal
+```
 
 Core MassTown never imports TACS eagerly, so the package still imports cleanly
 when TACS is not installed.

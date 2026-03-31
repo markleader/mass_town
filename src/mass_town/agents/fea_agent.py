@@ -75,6 +75,7 @@ class FEAAgent(BaseAgent):
             allowable_stress=config.allowable_stress,
             case_name=config.fea.case_name,
             write_solution=config.fea.write_solution,
+            shell_setup=config.fea.shell_setup,
         )
 
         try:

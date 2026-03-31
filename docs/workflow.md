@@ -45,7 +45,8 @@ The FEA agent now works through a discipline-level backend contract.
 4. If no explicit model path is configured and the mesh artifact is a `.bdf`,
    use that generated mesh file as the solver input.
 5. For shell BDF inputs, build the TACS shell problem in code and apply
-   boundary conditions and nodal loads programmatically.
+   boundary conditions and nodal loads from `fea.shell_setup` or existing BDF
+   SPC cards.
 6. Run analysis and persist normalized summaries under `results/<run_id>/reports`
    plus solver-native outputs under `results/<run_id>/solver`.
 7. Raise structured diagnostics if the selected backend is unavailable, the

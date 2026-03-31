@@ -8,6 +8,7 @@ from mass_town.design_variables import (
     DesignVariableDefinition,
     ensure_unique_design_variable_definitions,
 )
+from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 
 
 class MeshingConfig(BaseModel):
@@ -25,6 +26,7 @@ class FEAConfig(BaseModel):
     model_input_path: str | None = None
     case_name: str = "static"
     write_solution: bool = True
+    shell_setup: FEAShellSetup | None = None
 
 
 class WorkflowConfig(BaseModel):

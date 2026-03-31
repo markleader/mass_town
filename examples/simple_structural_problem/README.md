@@ -28,8 +28,9 @@ STEP -> gmsh -> BDF -> TACS -> thickness-update loop from
   - the gmsh mesh is exported as a shell-oriented BDF
   - the exporter currently supports `CTRIA3` and `CQUAD4` shell elements plus deterministic property assignment
 - TACS BC and load application:
-  - the left bore is fixed in all six DOFs
-  - the right bore receives the design-state force in global `-y`
+  - `fea.shell_setup` defines named node sets for `left_bore` and `right_bore`
+  - the `left_bore` node set is fixed in all six DOFs
+  - the `right_bore` node set receives the design-state force in global `-y`
   - shell thickness comes from the scalar `thickness` design variable
 - Objective and constraint definition:
   - the current Phase 0 loop is a deterministic feasibility-recovery loop, not a full optimizer
@@ -42,9 +43,9 @@ STEP -> gmsh -> BDF -> TACS -> thickness-update loop from
 
 - `gmsh` imports the STEP geometry, picks the largest planar face, meshes that face in 2D, and exports a `.bdf` shell model.
 - `tacs` consumes the generated `.bdf` directly from the mesh artifact.
-- The analysis script applies boundary conditions and loads in memory:
-  the left bore is fixed and the right bore receives the design-state force in
-  global `-y`.
+- The analysis script resolves node sets from `config.yaml` and applies
+  boundary conditions and loads in memory: `left_bore` is fixed and
+  `right_bore` receives the design-state force in global `-y`.
 - The example keeps the existing `thickness` design variable, which is used as
   the shell thickness in the TACS element callback.
 

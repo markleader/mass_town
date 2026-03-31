@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from collections import Counter, defaultdict, deque
 
 
 ShellElement = tuple[str, tuple[int, ...]]
+
+
+@dataclass(frozen=True)
+class BoundaryLoop:
+    nodes: list[int]
+    area: float
+    abs_area: float
+    centroid_x: float
+    centroid_y: float
 
 
 def find_boundary_loops(
@@ -43,39 +53,69 @@ def find_boundary_loops(
     return loops
 
 
-def classify_boundary_loops(
+def describe_boundary_loops(
     node_positions: dict[int, tuple[float, float, float]],
     loops: list[list[int]],
-) -> dict[str, list[int]]:
-    if len(loops) < 3:
-        raise ValueError(
-            "Expected at least three boundary loops (outer boundary plus two bores)."
+) -> list[BoundaryLoop]:
+    described: list[BoundaryLoop] = []
+    for loop in loops:
+        signed_area = _loop_area_xy(node_positions, loop)
+        described.append(
+            BoundaryLoop(
+                nodes=list(loop),
+                area=signed_area,
+                abs_area=abs(signed_area),
+                centroid_x=sum(node_positions[node_id][0] for node_id in loop) / len(loop),
+                centroid_y=sum(node_positions[node_id][1] for node_id in loop) / len(loop),
+            )
         )
+    return described
 
-    ranked = [
-        {
-            "nodes": loop,
-            "area": abs(_loop_area_xy(node_positions, loop)),
-            "centroid_x": sum(node_positions[node_id][0] for node_id in loop) / len(loop),
-        }
-        for loop in loops
-    ]
-    ranked.sort(key=lambda item: item["area"], reverse=True)
-    outer = ranked[0]["nodes"]
-    bores = ranked[1:3]
-    bores.sort(key=lambda item: item["centroid_x"])
 
-    return {
-        "outer": list(outer),
-        "left_bore": list(bores[0]["nodes"]),
-        "right_bore": list(bores[1]["nodes"]),
-    }
+def select_boundary_loop(
+    loop_data: list[BoundaryLoop],
+    *,
+    family: str,
+    order_by: str,
+    index: int,
+) -> list[int]:
+    if index < 0:
+        raise ValueError("Boundary-loop selector index must be non-negative.")
+    if not loop_data:
+        raise ValueError("Shell mesh has no free-edge boundary loops.")
+
+    by_area = sorted(loop_data, key=lambda item: item.abs_area, reverse=True)
+    if family == "outer":
+        candidates = by_area[:1]
+    elif family == "inner":
+        candidates = by_area[1:]
+    else:
+        raise ValueError(f"Unsupported boundary-loop family '{family}'.")
+
+    if not candidates:
+        raise ValueError(f"Shell mesh has no boundary loops in family '{family}'.")
+
+    if order_by == "area":
+        ranked = sorted(candidates, key=lambda item: item.abs_area, reverse=True)
+    elif order_by == "centroid_x":
+        ranked = sorted(candidates, key=lambda item: item.centroid_x)
+    elif order_by == "centroid_y":
+        ranked = sorted(candidates, key=lambda item: item.centroid_y)
+    else:
+        raise ValueError(f"Unsupported boundary-loop ordering '{order_by}'.")
+
+    try:
+        return list(ranked[index].nodes)
+    except IndexError as exc:
+        raise ValueError(
+            f"Boundary-loop selector index {index} is out of range for family '{family}'."
+        ) from exc
 
 
 def distribute_force_to_nodes(
     node_ids: list[int],
     total_force: float,
-    direction: tuple[float, float, float] = (0.0, -1.0, 0.0),
+    direction: tuple[float, float, float],
 ) -> list[list[float]]:
     if not node_ids:
         raise ValueError("Cannot distribute a load across zero nodes.")

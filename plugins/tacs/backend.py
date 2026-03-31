@@ -7,7 +7,12 @@ from typing import Any
 from mass_town.disciplines.fea import FEABackend, FEARequest, FEAResult
 from mass_town.storage.filesystem import ensure_directory
 
-from .shell_model import classify_boundary_loops, distribute_force_to_nodes, find_boundary_loops
+from .shell_model import (
+    describe_boundary_loops,
+    distribute_force_to_nodes,
+    find_boundary_loops,
+    select_boundary_loop,
+)
 
 
 class TacsFEABackend(FEABackend):
@@ -146,23 +151,16 @@ class TacsFEABackend(FEABackend):
     ) -> dict[str, Any]:
         node_positions = self._extract_node_positions(bdf_info)
         shell_elements = self._extract_shell_elements(bdf_info)
-        constrained_nodes: list[int] = []
-        loaded_nodes: list[int] = []
-        load_mode = "none"
-        if self._has_explicit_spcs(bdf_info):
-            load_mode = "existing_spc"
-        else:
-            boundary_loops = find_boundary_loops(node_positions, shell_elements)
-            if len(boundary_loops) >= 3:
-                classified_loops = classify_boundary_loops(node_positions, boundary_loops)
-                constrained_nodes = classified_loops["left_bore"]
-                loaded_nodes = classified_loops["right_bore"]
-                bdf_info.add_spc1(1, "123456", constrained_nodes)
-                load_mode = "bore_loop"
-            else:
-                constrained_nodes = list(boundary_loops[0])
-                bdf_info.add_spc1(1, "123456", constrained_nodes)
-                load_mode = "outer_loop"
+        resolved_node_sets = self._resolve_shell_node_sets(
+            request=request,
+            node_positions=node_positions,
+            shell_elements=shell_elements,
+        )
+        constrained_nodes, bc_mode = self._apply_shell_boundary_conditions(
+            request=request,
+            bdf_info=bdf_info,
+            resolved_node_sets=resolved_node_sets,
+        )
 
         shell_thickness = self._resolve_shell_thickness_assignments(
             request,
@@ -183,20 +181,11 @@ class TacsFEABackend(FEABackend):
 
         problem = assembler.createStaticProblem(request.case_name)
         self._add_functions(problem, functions)
-        force = float(request.loads.get("force", 0.0))
-        if force != 0.0:
-            if loaded_nodes:
-                load_vectors = distribute_force_to_nodes(loaded_nodes, force)
-                problem.addLoadToNodes(loaded_nodes, load_vectors, nastranOrdering=True)
-            else:
-                center_node = self._closest_node_to_centroid(node_positions)
-                problem.addLoadToNodes(
-                    [center_node],
-                    [[0.0, 0.0, force, 0.0, 0.0, 0.0]],
-                    nastranOrdering=True,
-                )
-                loaded_nodes = [center_node]
-                load_mode = "center_point"
+        loaded_nodes, load_mode = self._apply_shell_loads(
+            request=request,
+            problem=problem,
+            resolved_node_sets=resolved_node_sets,
+        )
         problem.solve()
 
         if request.write_solution and hasattr(problem, "writeSolution"):
@@ -220,6 +209,7 @@ class TacsFEABackend(FEABackend):
             "boundary_conditions": {
                 "constrained_node_count": len(constrained_nodes),
                 "loaded_node_count": len(loaded_nodes),
+                "bc_mode": bc_mode,
                 "load_mode": load_mode,
             },
         }
@@ -403,6 +393,111 @@ class TacsFEABackend(FEABackend):
         spcs = getattr(bdf_info, "spcs", {})
         spcadds = getattr(bdf_info, "spcadds", {})
         return bool(spcs) or bool(spcadds)
+
+    def _resolve_shell_node_sets(
+        self,
+        *,
+        request: FEARequest,
+        node_positions: dict[int, tuple[float, float, float]],
+        shell_elements: list[tuple[str, tuple[int, ...]]],
+    ) -> dict[str, list[int]]:
+        shell_setup = request.shell_setup
+        if shell_setup is None or not shell_setup.node_sets:
+            return {}
+
+        described_loops = None
+        resolved: dict[str, list[int]] = {}
+        for name, selector in shell_setup.node_sets.items():
+            if selector.selector == "boundary_loop":
+                if described_loops is None:
+                    boundary_loops = find_boundary_loops(node_positions, shell_elements)
+                    described_loops = describe_boundary_loops(node_positions, boundary_loops)
+                resolved[name] = select_boundary_loop(
+                    described_loops,
+                    family=selector.family or "",
+                    order_by=selector.order_by or "",
+                    index=selector.index or 0,
+                )
+                continue
+
+            if selector.selector == "closest_node_to_centroid":
+                resolved[name] = [self._closest_node_to_centroid(node_positions)]
+                continue
+
+            raise RuntimeError(f"Unsupported shell node-set selector '{selector.selector}'.")
+
+        return resolved
+
+    def _apply_shell_boundary_conditions(
+        self,
+        *,
+        request: FEARequest,
+        bdf_info: Any,
+        resolved_node_sets: dict[str, list[int]],
+    ) -> tuple[list[int], str]:
+        shell_setup = request.shell_setup
+        if shell_setup is not None and shell_setup.boundary_conditions:
+            constrained: set[int] = set()
+            for boundary_condition in shell_setup.boundary_conditions:
+                node_ids = resolved_node_sets[boundary_condition.node_set]
+                bdf_info.add_spc1(1, boundary_condition.dof, node_ids)
+                constrained.update(node_ids)
+            return sorted(constrained), "configured_shell_setup"
+
+        if self._has_explicit_spcs(bdf_info):
+            return [], "existing_spc"
+
+        raise RuntimeError(
+            "Shell models require boundary conditions from "
+            "fea.shell_setup.boundary_conditions or SPC cards in the BDF."
+        )
+
+    def _apply_shell_loads(
+        self,
+        *,
+        request: FEARequest,
+        problem: Any,
+        resolved_node_sets: dict[str, list[int]],
+    ) -> tuple[list[int], str]:
+        requested_loads = {
+            name: float(value) for name, value in request.loads.items() if abs(float(value)) > 1e-12
+        }
+        if not requested_loads:
+            return [], "none"
+
+        shell_setup = request.shell_setup
+        configured_loads = shell_setup.loads if shell_setup is not None else []
+        if not configured_loads:
+            requested_keys = ", ".join(sorted(requested_loads))
+            raise RuntimeError(
+                "Shell scripted loads were requested but fea.shell_setup.loads is not configured. "
+                f"Requested load keys: {requested_keys}."
+            )
+
+        configured_keys = {load.load_key for load in configured_loads}
+        missing_keys = sorted(set(requested_loads) - configured_keys)
+        if missing_keys:
+            missing = ", ".join(missing_keys)
+            raise RuntimeError(
+                "Shell scripted loads are missing explicit node-set configuration for: "
+                f"{missing}."
+            )
+
+        loaded_nodes: set[int] = set()
+        for load in configured_loads:
+            magnitude = requested_loads.get(load.load_key)
+            if magnitude is None:
+                continue
+            node_ids = resolved_node_sets[load.node_set]
+            if load.distribution != "equal":
+                raise RuntimeError(
+                    f"Unsupported shell load distribution '{load.distribution}'."
+                )
+            load_vectors = distribute_force_to_nodes(node_ids, magnitude, tuple(load.direction))
+            problem.addLoadToNodes(node_ids, load_vectors, nastranOrdering=True)
+            loaded_nodes.update(node_ids)
+
+        return sorted(loaded_nodes), "configured_shell_setup"
 
     def _closest_node_to_centroid(self, node_positions: dict[int, tuple[float, float, float]]) -> int:
         if not node_positions:

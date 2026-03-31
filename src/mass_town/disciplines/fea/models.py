@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from mass_town.design_variables import DesignVariableAssignments
+from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 
 
 class FEARequest(BaseModel):
@@ -21,6 +22,7 @@ class FEARequest(BaseModel):
     allowable_stress: float
     case_name: str = "static"
     write_solution: bool = True
+    shell_setup: FEAShellSetup | None = None
 
 
 class FEAResult(BaseModel):

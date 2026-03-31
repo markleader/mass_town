@@ -5,6 +5,15 @@ fea:
   model_input_path: inputs/model/plate.bdf
   case_name: plate_static
   write_solution: true
+  shell_setup:
+    node_sets:
+      center_node:
+        selector: closest_node_to_centroid
+    loads:
+      - node_set: center_node
+        load_key: force
+        direction: [0.0, 0.0, 1.0]
+        distribution: equal
 design_variables:
   - id: pid1_t
     name: PID 1 Thickness

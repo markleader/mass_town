@@ -1,14 +1,21 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from mass_town.agents.fea_agent import FEAAgent
 from mass_town.config import WorkflowConfig
 from mass_town.design_variables import DesignVariableType
 from mass_town.disciplines.fea import FEABackend, FEABackendError, FEARequest, FEAResult
 from mass_town.disciplines.fea.registry import BACKEND_LOADERS, resolve_fea_backend
 from mass_town.models.design_state import DesignState
-from plugins.tacs.shell_model import classify_boundary_loops, distribute_force_to_nodes, find_boundary_loops
 from plugins.tacs.backend import TacsFEABackend
+from plugins.tacs.shell_model import (
+    describe_boundary_loops,
+    distribute_force_to_nodes,
+    find_boundary_loops,
+    select_boundary_loop,
+)
 
 
 class StubFEABackend(FEABackend):
@@ -47,6 +54,155 @@ class StubFEABackend(FEABackend):
         )
 
 
+class FakeProblem:
+    def __init__(self) -> None:
+        self.added_loads: list[tuple[list[int], list[list[float]], bool]] = []
+        self.function_registrations: list[tuple[str, object, dict[str, float]]] = []
+        self.solved = False
+
+    def addFunction(self, name: str, function: object, **kwargs: float) -> None:
+        self.function_registrations.append((name, function, kwargs))
+
+    def addLoadToNodes(
+        self,
+        node_ids: list[int],
+        load_vectors: list[list[float]],
+        *,
+        nastranOrdering: bool,
+    ) -> None:
+        self.added_loads.append((list(node_ids), load_vectors, nastranOrdering))
+
+    def solve(self) -> None:
+        self.solved = True
+
+    def evalFunctions(self, values: dict[str, float]) -> None:
+        values["mass"] = 24.0
+        values["ks_vmfailure"] = 0.5
+
+
+class FakeAssembler:
+    def __init__(self, bdf_info: object) -> None:
+        self.bdf_info = bdf_info
+        self.problem = FakeProblem()
+        self.initialized = False
+
+    def initialize(self, callback: object) -> None:
+        self.initialized = True
+        self.callback = callback
+
+    def createStaticProblem(self, case_name: str) -> FakeProblem:
+        self.case_name = case_name
+        return self.problem
+
+
+class FakeBDFInfo:
+    def __init__(
+        self,
+        node_positions: dict[int, tuple[float, float, float]],
+        elements: list[tuple[str, tuple[int, ...]]],
+        *,
+        spcs: dict[int, object] | None = None,
+    ) -> None:
+        self.nodes = {
+            node_id: SimpleNamespace(xyz=position) for node_id, position in node_positions.items()
+        }
+        self.elements = {
+            element_id: SimpleNamespace(type=kind, nodes=node_ids, pid=1)
+            for element_id, (kind, node_ids) in enumerate(elements, start=1)
+        }
+        self.spcs = spcs or {}
+        self.spcadds = {}
+        self.added_spcs: list[tuple[int, str, list[int]]] = []
+
+    def add_spc1(self, sid: int, dof: str, node_ids: list[int]) -> None:
+        self.added_spcs.append((sid, dof, list(node_ids)))
+
+
+def _shell_node_positions_and_elements() -> tuple[
+    dict[int, tuple[float, float, float]],
+    list[tuple[str, tuple[int, ...]]],
+]:
+    node_positions = {
+        node_id: (float(x), float(y), 0.0)
+        for node_id, (x, y) in {
+            1: (0, 0),
+            2: (1, 0),
+            3: (2, 0),
+            4: (3, 0),
+            5: (4, 0),
+            6: (5, 0),
+            7: (6, 0),
+            8: (0, 1),
+            9: (1, 1),
+            10: (2, 1),
+            11: (3, 1),
+            12: (4, 1),
+            13: (5, 1),
+            14: (6, 1),
+            15: (0, 2),
+            16: (1, 2),
+            17: (2, 2),
+            18: (3, 2),
+            19: (4, 2),
+            20: (5, 2),
+            21: (6, 2),
+            22: (0, 3),
+            23: (1, 3),
+            24: (2, 3),
+            25: (3, 3),
+            26: (4, 3),
+            27: (5, 3),
+            28: (6, 3),
+            29: (0, 4),
+            30: (1, 4),
+            31: (2, 4),
+            32: (3, 4),
+            33: (4, 4),
+            34: (5, 4),
+            35: (6, 4),
+        }.items()
+    }
+    elements = []
+    for y in range(4):
+        for x in range(6):
+            if (x, y) in {(1, 1), (4, 1)}:
+                continue
+            lower_left = y * 7 + x + 1
+            elements.append(
+                (
+                    "CQUAD4",
+                    (
+                        lower_left,
+                        lower_left + 1,
+                        lower_left + 8,
+                        lower_left + 7,
+                    ),
+                )
+            )
+    return node_positions, elements
+
+
+def _shell_request(
+    tmp_path: Path,
+    *,
+    shell_setup: dict[str, object] | None = None,
+    loads: dict[str, float] | None = None,
+) -> FEARequest:
+    model_path = tmp_path / "shell_model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    return FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path,
+        log_directory=tmp_path,
+        solution_directory=tmp_path,
+        run_id="shell-run",
+        design_variables={"thickness": 0.8},
+        loads=loads or {"force": 120.0},
+        allowable_stress=180.0,
+        shell_setup=shell_setup,
+    )
+
+
 def _base_state() -> DesignState:
     return DesignState(
         run_id="fea-run",
@@ -67,6 +223,39 @@ def test_config_parses_fea_settings() -> None:
     assert config.fea.model_input_path == "analysis/model.bdf"
     assert config.fea.case_name == "wing"
     assert config.fea.write_solution is True
+
+
+def test_config_parses_shell_setup_settings() -> None:
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "shell_setup": {
+                    "node_sets": {
+                        "left_bore": {
+                            "selector": "boundary_loop",
+                            "family": "inner",
+                            "order_by": "centroid_x",
+                            "index": 0,
+                        }
+                    },
+                    "boundary_conditions": [{"node_set": "left_bore", "dof": "123456"}],
+                    "loads": [
+                        {
+                            "node_set": "left_bore",
+                            "load_key": "force",
+                            "direction": [0.0, -1.0, 0.0],
+                            "distribution": "equal",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+
+    assert config.fea.shell_setup is not None
+    assert config.fea.shell_setup.node_sets["left_bore"].selector == "boundary_loop"
+    assert config.fea.shell_setup.loads[0].direction == (0.0, -1.0, 0.0)
 
 
 def test_config_parses_design_variable_settings() -> None:
@@ -151,6 +340,46 @@ def test_fea_agent_normalizes_backend_result(monkeypatch, tmp_path: Path) -> Non
     assert result.artifacts[0].metadata["backend"] == "tacs"
     assert result.artifacts[0].metadata["mass"] == 24.0
     assert result.artifacts[0].metadata["failure_index"] == 2.0 / 3.0
+
+
+def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    backend = StubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "shell_setup": {
+                    "node_sets": {
+                        "center_node": {
+                            "selector": "closest_node_to_centroid",
+                        }
+                    },
+                    "loads": [
+                        {
+                            "node_set": "center_node",
+                            "load_key": "force",
+                            "direction": [0.0, 0.0, 1.0],
+                            "distribution": "equal",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+
+    result = FEAAgent().run(_base_state(), config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert backend.last_request.shell_setup is not None
+    assert backend.last_request.shell_setup.node_sets["center_node"].selector == (
+        "closest_node_to_centroid"
+    )
 
 
 def test_fea_agent_uses_generated_bdf_when_model_path_is_omitted(monkeypatch, tmp_path: Path) -> None:
@@ -269,79 +498,180 @@ def test_fea_agent_reports_design_variable_mapping_failures(tmp_path: Path) -> N
 
 
 def test_shell_boundary_loop_detection_and_classification() -> None:
-    node_positions = {
-        node_id: (float(x), float(y), 0.0)
-        for node_id, (x, y) in {
-            1: (0, 0),
-            2: (1, 0),
-            3: (2, 0),
-            4: (3, 0),
-            5: (4, 0),
-            6: (5, 0),
-            7: (6, 0),
-            8: (0, 1),
-            9: (1, 1),
-            10: (2, 1),
-            11: (3, 1),
-            12: (4, 1),
-            13: (5, 1),
-            14: (6, 1),
-            15: (0, 2),
-            16: (1, 2),
-            17: (2, 2),
-            18: (3, 2),
-            19: (4, 2),
-            20: (5, 2),
-            21: (6, 2),
-            22: (0, 3),
-            23: (1, 3),
-            24: (2, 3),
-            25: (3, 3),
-            26: (4, 3),
-            27: (5, 3),
-            28: (6, 3),
-            29: (0, 4),
-            30: (1, 4),
-            31: (2, 4),
-            32: (3, 4),
-            33: (4, 4),
-            34: (5, 4),
-            35: (6, 4),
-        }.items()
-    }
-    elements = []
-    for y in range(4):
-        for x in range(6):
-            if (x, y) in {(1, 1), (4, 1)}:
-                continue
-            lower_left = y * 7 + x + 1
-            elements.append(
-                (
-                    "CQUAD4",
-                    (
-                        lower_left,
-                        lower_left + 1,
-                        lower_left + 8,
-                        lower_left + 7,
-                    ),
-                )
-            )
-
+    node_positions, elements = _shell_node_positions_and_elements()
     loops = find_boundary_loops(node_positions, elements)
-    classified = classify_boundary_loops(node_positions, loops)
+    described = describe_boundary_loops(node_positions, loops)
+    outer = select_boundary_loop(described, family="outer", order_by="area", index=0)
+    left_inner = select_boundary_loop(described, family="inner", order_by="centroid_x", index=0)
+    right_inner = select_boundary_loop(described, family="inner", order_by="centroid_x", index=1)
 
     assert len(loops) == 3
-    assert len(classified["outer"]) > len(classified["left_bore"])
-    assert set(classified["left_bore"]) == {9, 10, 17, 16}
-    assert set(classified["right_bore"]) == {12, 13, 20, 19}
+    assert len(outer) > len(left_inner)
+    assert set(left_inner) == {9, 10, 17, 16}
+    assert set(right_inner) == {12, 13, 20, 19}
 
 
 def test_distribute_force_to_nodes_preserves_total_force() -> None:
-    loads = distribute_force_to_nodes([10, 20, 30], 120.0)
+    loads = distribute_force_to_nodes([10, 20, 30], 120.0, (0.0, -1.0, 0.0))
 
     assert len(loads) == 3
     assert sum(load[1] for load in loads) == -120.0
     assert all(load[0] == 0.0 for load in loads)
+
+
+def test_tacs_backend_resolves_shell_node_sets(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    request = _shell_request(
+        tmp_path,
+        shell_setup={
+            "node_sets": {
+                "left_bore": {
+                    "selector": "boundary_loop",
+                    "family": "inner",
+                    "order_by": "centroid_x",
+                    "index": 0,
+                },
+                "right_bore": {
+                    "selector": "boundary_loop",
+                    "family": "inner",
+                    "order_by": "centroid_x",
+                    "index": 1,
+                },
+                "center_node": {
+                    "selector": "closest_node_to_centroid",
+                },
+            }
+        },
+    )
+
+    resolved = backend._resolve_shell_node_sets(
+        request=request,
+        node_positions=node_positions,
+        shell_elements=elements,
+    )
+
+    assert set(resolved["left_bore"]) == {9, 10, 17, 16}
+    assert set(resolved["right_bore"]) == {12, 13, 20, 19}
+    assert len(resolved["center_node"]) == 1
+    assert resolved["center_node"][0] in node_positions
+
+
+def test_tacs_backend_applies_explicit_shell_setup_boundary_conditions_and_loads(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements)
+    assembler = FakeAssembler(bdf_info)
+    request = _shell_request(
+        tmp_path,
+        shell_setup={
+            "node_sets": {
+                "left_bore": {
+                    "selector": "boundary_loop",
+                    "family": "inner",
+                    "order_by": "centroid_x",
+                    "index": 0,
+                },
+                "right_bore": {
+                    "selector": "boundary_loop",
+                    "family": "inner",
+                    "order_by": "centroid_x",
+                    "index": 1,
+                },
+            },
+            "boundary_conditions": [{"node_set": "left_bore", "dof": "123456"}],
+            "loads": [
+                {
+                    "node_set": "right_bore",
+                    "load_key": "force",
+                    "direction": [0.0, -1.0, 0.0],
+                    "distribution": "equal",
+                }
+            ],
+        },
+    )
+
+    result = backend._run_shell_analysis(
+        request=request,
+        bdf_info=bdf_info,
+        pyTACS=lambda input_bdf: assembler,
+        functions=SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        constitutive=SimpleNamespace(),
+        elements=SimpleNamespace(),
+        output_directory=tmp_path,
+    )
+
+    assert result["boundary_conditions"]["bc_mode"] == "configured_shell_setup"
+    assert result["boundary_conditions"]["load_mode"] == "configured_shell_setup"
+    assert len(bdf_info.added_spcs) == 1
+    assert bdf_info.added_spcs[0][1] == "123456"
+    assert set(bdf_info.added_spcs[0][2]) == {9, 10, 17, 16}
+    assert len(assembler.problem.added_loads) == 1
+    node_ids, load_vectors, nastran_ordering = assembler.problem.added_loads[0]
+    assert nastran_ordering is True
+    assert set(node_ids) == {12, 13, 20, 19}
+    assert sum(load[1] for load in load_vectors) == -120.0
+
+
+def test_tacs_backend_uses_existing_spcs_with_explicit_shell_load_selector(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements, spcs={1: object()})
+    assembler = FakeAssembler(bdf_info)
+    request = _shell_request(
+        tmp_path,
+        shell_setup={
+            "node_sets": {
+                "center_node": {"selector": "closest_node_to_centroid"},
+            },
+            "loads": [
+                {
+                    "node_set": "center_node",
+                    "load_key": "force",
+                    "direction": [0.0, 0.0, 1.0],
+                    "distribution": "equal",
+                }
+            ],
+        },
+    )
+
+    result = backend._run_shell_analysis(
+        request=request,
+        bdf_info=bdf_info,
+        pyTACS=lambda input_bdf: assembler,
+        functions=SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        constitutive=SimpleNamespace(),
+        elements=SimpleNamespace(),
+        output_directory=tmp_path,
+    )
+
+    assert result["boundary_conditions"]["bc_mode"] == "existing_spc"
+    assert bdf_info.added_spcs == []
+    assert len(assembler.problem.added_loads) == 1
+    node_ids, load_vectors, _ = assembler.problem.added_loads[0]
+    assert len(node_ids) == 1
+    assert load_vectors == [[0.0, 0.0, 120.0, 0.0, 0.0, 0.0]]
+
+
+def test_tacs_backend_requires_explicit_shell_load_configuration_for_scripted_loads(
+    tmp_path: Path,
+) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements, spcs={1: object()})
+    assembler = FakeAssembler(bdf_info)
+    request = _shell_request(tmp_path, shell_setup=None)
+
+    with pytest.raises(RuntimeError, match="fea\\.shell_setup\\.loads"):
+        backend._run_shell_analysis(
+            request=request,
+            bdf_info=bdf_info,
+            pyTACS=lambda input_bdf: assembler,
+            functions=SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+            constitutive=SimpleNamespace(),
+            elements=SimpleNamespace(),
+            output_directory=tmp_path,
+        )
 
 
 def test_tacs_backend_maps_elementwise_thickness_assignments_to_component_thickness(tmp_path: Path) -> None:

@@ -11,6 +11,26 @@ fea:
   tool: tacs
   case_name: static
   write_solution: true
+  shell_setup:
+    node_sets:
+      left_bore:
+        selector: boundary_loop
+        family: inner
+        order_by: centroid_x
+        index: 0
+      right_bore:
+        selector: boundary_loop
+        family: inner
+        order_by: centroid_x
+        index: 1
+    boundary_conditions:
+      - node_set: left_bore
+        dof: "123456"
+    loads:
+      - node_set: right_bore
+        load_key: force
+        direction: [0.0, -1.0, 0.0]
+        distribution: equal
 initial_tasks:
   - geometry
   - mesh
