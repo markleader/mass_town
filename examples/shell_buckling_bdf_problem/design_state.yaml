@@ -1,0 +1,28 @@
+run_id: shell-buckling-bdf-problem
+problem_name: shell_buckling_bdf_problem
+status: pending
+iteration: 0
+design_variables:
+  thickness: 0.01
+loads:
+  force_x: -1.0
+constraints:
+  max_stress: 3000000000.0
+  minimum_buckling_load_factor:
+    mode: 0
+    minimum: 0.005
+geometry_state:
+  valid: true
+  notes: bdf-first
+mesh_state:
+  quality: 0.0
+  elements: 0
+analysis_state:
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  passed: false
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

@@ -21,11 +21,25 @@ class AggregatedStressConstraint(BaseModel):
         return self
 
 
+class MinimumEigenvalueConstraint(BaseModel):
+    mode: int = 0
+    minimum: float
+
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "MinimumEigenvalueConstraint":
+        if self.mode < 0:
+            raise ValueError("minimum eigenvalue constraint mode must be non-negative.")
+        if self.minimum <= 0.0:
+            raise ValueError("minimum eigenvalue constraint minimum must be positive.")
+        return self
+
+
 class ConstraintSet(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     max_stress: float | None = None
     aggregated_stress: AggregatedStressConstraint | None = None
+    minimum_buckling_load_factor: MinimumEigenvalueConstraint | None = None
 
     def __getitem__(self, key: str) -> object:
         return getattr(self, key)
@@ -33,6 +47,8 @@ class ConstraintSet(BaseModel):
     def __setitem__(self, key: str, value: object) -> None:
         if key == "aggregated_stress" and value is not None:
             value = AggregatedStressConstraint.model_validate(value)
+        if key == "minimum_buckling_load_factor" and value is not None:
+            value = MinimumEigenvalueConstraint.model_validate(value)
         setattr(self, key, value)
 
     def get(self, key: str, default: object = None) -> object:
@@ -58,6 +74,15 @@ class AggregatedStressResult(BaseModel):
     passed: bool = False
     controlling_case: str | None = None
     quality_summary_path: str | None = None
+
+
+class EigenvalueConstraintResult(BaseModel):
+    quantity: str
+    mode: int
+    minimum: float
+    value: float | None = None
+    passed: bool = False
+    controlling_case: str | None = None
 
 
 def resolve_aggregated_stress_constraint(
@@ -116,6 +141,53 @@ def aggregate_case_stresses(
         passed=value is not None and value <= resolved.allowable,
         controlling_case=controlling_case,
         quality_summary_path=quality_summary_path,
+    )
+
+
+def evaluate_minimum_eigenvalue_constraint(
+    case_eigenvalues: Mapping[str, list[float] | tuple[float, ...]],
+    constraint: MinimumEigenvalueConstraint | None,
+    *,
+    quantity: str,
+) -> EigenvalueConstraintResult | None:
+    if constraint is None:
+        return None
+
+    selected_values: dict[str, float] = {}
+    for case_name, eigenvalues in case_eigenvalues.items():
+        if len(eigenvalues) <= constraint.mode:
+            continue
+        selected_values[case_name] = float(eigenvalues[constraint.mode])
+
+    controlling_case = (
+        min(selected_values, key=selected_values.get)
+        if selected_values
+        else None
+    )
+    value = (
+        float(selected_values[controlling_case])
+        if controlling_case is not None
+        else None
+    )
+
+    return EigenvalueConstraintResult(
+        quantity=quantity,
+        mode=constraint.mode,
+        minimum=float(constraint.minimum),
+        value=value,
+        passed=value is not None and value >= constraint.minimum,
+        controlling_case=controlling_case,
+    )
+
+
+def evaluate_minimum_buckling_load_factor_constraint(
+    case_eigenvalues: Mapping[str, list[float] | tuple[float, ...]],
+    constraint: MinimumEigenvalueConstraint | None,
+) -> EigenvalueConstraintResult | None:
+    return evaluate_minimum_eigenvalue_constraint(
+        case_eigenvalues,
+        constraint,
+        quantity="buckling_load_factor",
     )
 
 

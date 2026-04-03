@@ -157,12 +157,29 @@ class WorkflowEngine:
             "mass": state.analysis_state.mass,
             "max_stress": state.analysis_state.max_stress,
             "displacement_norm": state.analysis_state.displacement_norm,
+            "analysis_type": state.analysis_state.analysis_type,
+            "eigenvalues": state.analysis_state.eigenvalues,
+            "critical_eigenvalue": state.analysis_state.critical_eigenvalue,
+            "critical_buckling_load_factor": (
+                state.analysis_state.critical_eigenvalue
+                if state.analysis_state.analysis_type == "buckling"
+                else None
+            ),
+            "buckling_load_factors": (
+                state.analysis_state.eigenvalues
+                if state.analysis_state.analysis_type == "buckling"
+                else []
+            ),
             "worst_case_name": state.analysis_state.worst_case_name,
             "aggregated_stress": (
                 state.analysis_state.aggregated_stress.model_dump(mode="json")
                 if state.analysis_state.aggregated_stress is not None
                 else None
             ),
+            "eigenvalue_constraints": {
+                name: result.model_dump(mode="json")
+                for name, result in state.analysis_state.eigenvalue_constraints.items()
+            },
             "analysis_seconds": state.analysis_state.analysis_seconds,
             "load_case_results": load_case_results,
             "allowable_stress": self.config.allowable_stress,

@@ -138,6 +138,8 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 * Solid element support
 * Solid cantilever benchmark (`examples/solid_cantilever_problem`)
+* Linear buckling analysis support
+* BDF-first shell buckling example (`examples/shell_buckling_bdf_problem`)
 * Shell-vs-solid comparison benchmark (`examples/shell_cantilever_problem`)
 * Buckling analysis
 * Modal/frequency analysis

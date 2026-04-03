@@ -123,10 +123,10 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 2.2 Buckling analysis
 
-* [ ] Add linear buckling analysis support.
-* [ ] Define a common interface for eigenvalue-based constraints.
-* [ ] Create a buckling-constrained sizing example.
-* [ ] Verify feasibility logic for minimum buckling load factor constraints.
+* [x] Add linear buckling analysis support.
+* [x] Define a common interface for eigenvalue-based constraints.
+* [x] Create a buckling-constrained sizing example.
+* [x] Verify feasibility logic for minimum buckling load factor constraints.
 
 #### 2.3 Modal / dynamic analysis
 

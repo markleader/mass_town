@@ -1,6 +1,10 @@
 import pytest
 
-from mass_town.constraints import ConstraintSet, aggregate_case_stresses
+from mass_town.constraints import (
+    ConstraintSet,
+    aggregate_case_stresses,
+    evaluate_minimum_buckling_load_factor_constraint,
+)
 
 
 def test_ks_aggregation_is_at_least_the_max_case_stress() -> None:
@@ -88,3 +92,48 @@ def test_aggregated_stress_allowable_precedence(
 
     assert result is not None
     assert result.allowable == expected_allowable
+
+
+def test_minimum_buckling_load_factor_uses_requested_mode_and_controlling_case() -> None:
+    result = evaluate_minimum_buckling_load_factor_constraint(
+        {
+            "gust": [4.0, 7.0],
+            "maneuver": [2.5, 6.0],
+        },
+        ConstraintSet.model_validate(
+            {
+                "minimum_buckling_load_factor": {
+                    "mode": 0,
+                    "minimum": 3.0,
+                }
+            }
+        ).minimum_buckling_load_factor,
+    )
+
+    assert result is not None
+    assert result.quantity == "buckling_load_factor"
+    assert result.value == pytest.approx(2.5)
+    assert result.controlling_case == "maneuver"
+    assert result.passed is False
+
+
+def test_minimum_buckling_load_factor_can_pass_on_higher_mode() -> None:
+    result = evaluate_minimum_buckling_load_factor_constraint(
+        {
+            "gust": [2.0, 5.5],
+            "maneuver": [1.8, 4.2],
+        },
+        ConstraintSet.model_validate(
+            {
+                "minimum_buckling_load_factor": {
+                    "mode": 1,
+                    "minimum": 4.0,
+                }
+            }
+        ).minimum_buckling_load_factor,
+    )
+
+    assert result is not None
+    assert result.value == pytest.approx(4.2)
+    assert result.controlling_case == "maneuver"
+    assert result.passed is True

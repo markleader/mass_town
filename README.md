@@ -53,9 +53,11 @@ pixi install -e fea
 pixi run -e fea run-fea-example
 pixi run -e fea run-shell-bdf-example
 pixi run -e fea run-shell-bdf-multi-case-example
+pixi run -e fea run-shell-buckling-bdf-example
 pixi run -e fea test-fea-baseline
 pixi run -e fea test-shell-bdf-example
 pixi run -e fea test-shell-bdf-multi-case-example
+pixi run -e fea test-shell-buckling-bdf-example
 ```
 
 TACS local wiring is intentionally explicit and local-only. The repository does
@@ -76,6 +78,7 @@ your checkout is elsewhere.
 - `examples/simple_structural_problem/`: runnable example input
 - `examples/shell_sizing_bdf_problem/`: BDF-first shell sizing example
 - `examples/shell_sizing_bdf_multi_case_problem/`: BDF-first shell sizing example with multiple static load cases and configurable aggregated stress constraints
+- `examples/shell_buckling_bdf_problem/`: BDF-first shell buckling example with a minimum buckling load factor constraint
 - `examples/solid_cantilever_problem/`: STEP-driven 3D solid cantilever benchmark
 - `examples/shell_cantilever_problem/`: shell companion benchmark using the same cantilever STEP geometry
 - `tests/`: unit tests for the core orchestration and CLI

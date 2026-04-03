@@ -165,11 +165,23 @@ class FakeProblem:
         values["ks_vmfailure"] = 0.5
 
 
+class FakeBucklingProblem(FakeProblem):
+    def __init__(self, case_name: str, eigenvalues: list[float] | None = None) -> None:
+        super().__init__()
+        self.case_name = case_name
+        self.eigenvalues = list(eigenvalues or [3.0, 7.5, 10.0])
+
+    def evalFunctions(self, values: dict[str, float]) -> None:
+        for mode, value in enumerate(self.eigenvalues):
+            values[f"{self.case_name}_eigsb.{mode}"] = value
+
+
 class FakeAssembler:
     def __init__(self, bdf_info: object) -> None:
         self.bdf_info = bdf_info
         self.problem = FakeProblem()
         self.problems: dict[str, FakeProblem] = {}
+        self.buckling_problems: dict[str, FakeBucklingProblem] = {}
         self.initialized = False
 
     def initialize(self, callback: object | None = None) -> None:
@@ -182,6 +194,17 @@ class FakeAssembler:
         self.problems[case_name] = problem
         if len(self.problems) == 1:
             self.problem = problem
+        return problem
+
+    def createBucklingProblem(
+        self,
+        case_name: str,
+        sigma: float,
+        numEigs: int,
+    ) -> FakeBucklingProblem:
+        del sigma
+        problem = FakeBucklingProblem(case_name, [float(index + 1) for index in range(numEigs)])
+        self.buckling_problems[case_name] = problem
         return problem
 
 
@@ -350,6 +373,27 @@ def test_config_parses_fea_settings() -> None:
     assert config.fea.model_input_path == "analysis/model.bdf"
     assert config.fea.case_name == "wing"
     assert config.fea.write_solution is True
+
+
+def test_config_parses_buckling_settings() -> None:
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "analysis_type": "buckling",
+                "buckling_setup": {
+                    "sigma": 5.0,
+                    "num_eigenvalues": 4,
+                },
+            }
+        }
+    )
+
+    assert config.fea.analysis_type == "buckling"
+    assert config.fea.buckling_setup is not None
+    assert config.fea.buckling_setup.sigma == 5.0
+    assert config.fea.buckling_setup.num_eigenvalues == 4
 
 
 def test_config_parses_shell_setup_settings() -> None:
@@ -641,6 +685,111 @@ def test_fea_agent_uses_aggregated_stress_for_pass_fail(monkeypatch, tmp_path: P
     assert result.updates["analysis_state"]["max_stress"] == 170.0
 
 
+def test_fea_agent_uses_minimum_buckling_load_factor_for_pass_fail(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+
+    class BucklingStubFEABackend(FEABackend):
+        name = "tacs"
+
+        def is_available(self) -> bool:
+            return True
+
+        def availability_reason(self) -> str | None:
+            return None
+
+        def run_analysis(self, request: FEARequest) -> FEAResult:
+            summary_path = request.report_directory / "buckling-fea.json"
+            summary_path.write_text('{"worst_case_name": "maneuver"}\n')
+            load_cases = {
+                "gust": FEALoadCaseResult(
+                    passed=True,
+                    result_files=[request.report_directory / "gust.json"],
+                    mass=20.0,
+                    max_stress=90.0,
+                    displacement_norm=0.01,
+                    analysis_type="buckling",
+                    eigenvalues=[3.2, 5.4],
+                    critical_eigenvalue=3.2,
+                    analysis_seconds=0.4,
+                ),
+                "maneuver": FEALoadCaseResult(
+                    passed=True,
+                    result_files=[request.report_directory / "maneuver.json"],
+                    mass=20.0,
+                    max_stress=110.0,
+                    displacement_norm=0.02,
+                    analysis_type="buckling",
+                    eigenvalues=[2.1, 4.8],
+                    critical_eigenvalue=2.1,
+                    analysis_seconds=0.6,
+                ),
+            }
+            for case_result in load_cases.values():
+                case_result.result_files[0].write_text('{"ok": true}\n')
+            return FEAResult(
+                backend_name=self.name,
+                passed=True,
+                mass=20.0,
+                max_stress=110.0,
+                displacement_norm=0.02,
+                analysis_type="buckling",
+                eigenvalues=[2.1, 4.8],
+                critical_eigenvalue=2.1,
+                result_files=[summary_path, *(case.result_files[0] for case in load_cases.values())],
+                load_cases=load_cases,
+                worst_case_name="maneuver",
+                analysis_seconds=1.0,
+            )
+
+    backend = BucklingStubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "analysis_type": "buckling",
+            }
+        }
+    )
+    state = DesignState(
+        run_id="buckling-run",
+        problem_name="structural",
+        design_variables={"thickness": 0.8},
+        load_cases={
+            "gust": {"loads": {"force_x": 60.0}},
+            "maneuver": {"loads": {"force_x": 120.0}},
+        },
+        constraints={
+            "max_stress": 180.0,
+            "minimum_buckling_load_factor": {
+                "mode": 0,
+                "minimum": 2.5,
+            },
+        },
+    )
+
+    result = FEAAgent().run(state, config, tmp_path)
+
+    assert result.status == "failure"
+    assert result.diagnostics[0].code == "analysis.minimum_buckling_load_factor_not_met"
+    assert result.updates["analysis_state"]["analysis_type"] == "buckling"
+    assert result.updates["analysis_state"]["critical_eigenvalue"] == pytest.approx(2.1)
+    assert result.updates["analysis_state"]["worst_case_name"] == "maneuver"
+    minimum_buckling = result.updates["analysis_state"]["eigenvalue_constraints"][
+        "minimum_buckling_load_factor"
+    ]
+    assert minimum_buckling["quantity"] == "buckling_load_factor"
+    assert minimum_buckling["minimum"] == 2.5
+    assert minimum_buckling["value"] == pytest.approx(2.1)
+    assert minimum_buckling["controlling_case"] == "maneuver"
+
+
 def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
     model_path = tmp_path / "analysis" / "model.bdf"
     model_path.parent.mkdir(parents=True)
@@ -679,6 +828,36 @@ def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
     assert backend.last_request.shell_setup.node_sets["center_node"].selector == (
         "closest_node_to_centroid"
     )
+
+
+def test_fea_agent_forwards_buckling_settings(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    backend = StubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "analysis_type": "buckling",
+                "buckling_setup": {
+                    "sigma": 6.0,
+                    "num_eigenvalues": 3,
+                },
+            }
+        }
+    )
+
+    result = FEAAgent().run(_base_state(), config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert backend.last_request.analysis_type == "buckling"
+    assert backend.last_request.buckling_setup is not None
+    assert backend.last_request.buckling_setup.sigma == 6.0
+    assert backend.last_request.buckling_setup.num_eigenvalues == 3
 
 
 def test_fea_agent_forwards_solid_setup(monkeypatch, tmp_path: Path) -> None:
@@ -1139,6 +1318,86 @@ def test_tacs_backend_run_analysis_writes_multi_case_shell_summaries(tmp_path: P
     assert bending_summary["loads"] == {"force_z": 120.0}
     assert "center_bending" in assembler.problems
     assert "center_shear" in assembler.problems
+
+
+def test_tacs_backend_runs_shell_buckling_analysis_and_reports_eigenvalues(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements, spcs={1: object()})
+
+    class BucklingAssembler(FakeAssembler):
+        def createBucklingProblem(
+            self,
+            case_name: str,
+            sigma: float,
+            numEigs: int,
+        ) -> FakeBucklingProblem:
+            del sigma
+            problem = FakeBucklingProblem(case_name, [2.4, 4.8, 8.2][:numEigs])
+            self.buckling_problems[case_name] = problem
+            return problem
+
+    assembler = BucklingAssembler(bdf_info)
+    model_path = tmp_path / "shell_model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    request = FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path / "reports",
+        log_directory=tmp_path / "logs",
+        solution_directory=tmp_path / "solver",
+        run_id="buckling-shell",
+        allowable_stress=180.0,
+        analysis_type="buckling",
+        buckling_setup={
+            "sigma": 5.0,
+            "num_eigenvalues": 3,
+        },
+        load_cases={
+            "compression": {"loads": {"force_x": 120.0}},
+        },
+        shell_setup={
+            "node_sets": {
+                "edge": {
+                    "selector": "bounding_box_extreme",
+                    "axis": "x",
+                    "extreme": "max",
+                }
+            },
+            "loads": [
+                {
+                    "node_set": "edge",
+                    "load_key": "force_x",
+                    "direction": [-1.0, 0.0, 0.0],
+                    "distribution": "equal",
+                }
+            ],
+        },
+    )
+
+    backend._load_tacs_modules = lambda: (
+        lambda input_bdf: assembler,
+        SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        object,
+    )
+    backend._load_bdf = lambda model_path, bdf_class: bdf_info
+
+    result = backend.run_analysis(request)
+
+    assert result.analysis_type == "buckling"
+    assert result.critical_eigenvalue == pytest.approx(2.4)
+    assert result.eigenvalues == pytest.approx([2.4, 4.8, 8.2])
+    assert result.load_cases["compression"].critical_eigenvalue == pytest.approx(2.4)
+    summary = json.loads(result.result_files[0].read_text())
+    assert summary["analysis_type"] == "buckling"
+    assert summary["critical_buckling_load_factor"] == pytest.approx(2.4)
+    assert summary["buckling_load_factors"] == pytest.approx([2.4, 4.8, 8.2])
+    case_summary = json.loads(
+        (tmp_path / "reports" / "shell_model.compression.tacs.summary.json").read_text()
+    )
+    assert case_summary["critical_buckling_load_factor"] == pytest.approx(2.4)
+    assert "compression_buckling" in assembler.buckling_problems
 
 
 def test_tacs_backend_writes_aggregation_quality_summary(tmp_path: Path) -> None:

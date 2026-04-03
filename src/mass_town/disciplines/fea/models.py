@@ -1,6 +1,7 @@
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from mass_town.constraints import ConstraintSet
 from mass_town.design_variables import DesignVariableAssignments
@@ -12,12 +13,28 @@ class FEALoadCase(BaseModel):
     loads: dict[str, float] = Field(default_factory=dict)
 
 
+class FEABucklingSetup(BaseModel):
+    sigma: float = 10.0
+    num_eigenvalues: int = 5
+
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "FEABucklingSetup":
+        if self.sigma <= 0.0:
+            raise ValueError("buckling setup sigma must be positive.")
+        if self.num_eigenvalues <= 0:
+            raise ValueError("buckling setup num_eigenvalues must be positive.")
+        return self
+
+
 class FEALoadCaseResult(BaseModel):
     passed: bool
     result_files: list[Path] = Field(default_factory=list)
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
+    analysis_type: Literal["static", "buckling"] = "static"
+    eigenvalues: list[float] = Field(default_factory=list)
+    critical_eigenvalue: float | None = None
     metadata: dict[str, str | float | int | bool] = Field(default_factory=dict)
     log_path: Path | None = None
     analysis_seconds: float | None = None
@@ -38,8 +55,10 @@ class FEARequest(BaseModel):
     constraints: ConstraintSet = Field(default_factory=ConstraintSet)
     allowable_stress: float
     case_name: str = "static"
+    analysis_type: Literal["static", "buckling"] = "static"
     load_cases: dict[str, FEALoadCase] = Field(default_factory=dict)
     write_solution: bool = True
+    buckling_setup: FEABucklingSetup | None = None
     shell_setup: FEAShellSetup | None = None
     solid_setup: FEASolidSetup | None = None
 
@@ -50,6 +69,9 @@ class FEAResult(BaseModel):
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
+    analysis_type: Literal["static", "buckling"] = "static"
+    eigenvalues: list[float] = Field(default_factory=list)
+    critical_eigenvalue: float | None = None
     result_files: list[Path] = Field(default_factory=list)
     metadata: dict[str, str | float | int | bool] = Field(default_factory=dict)
     log_path: Path | None = None

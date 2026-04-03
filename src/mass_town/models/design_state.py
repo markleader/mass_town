@@ -2,7 +2,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from mass_town.constraints import AggregatedStressResult, ConstraintSet
+from mass_town.constraints import (
+    AggregatedStressResult,
+    ConstraintSet,
+    EigenvalueConstraintResult,
+)
 
 from .artifacts import ArtifactRecord
 from .result import Diagnostic
@@ -32,6 +36,9 @@ class LoadCaseAnalysisState(BaseModel):
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
+    analysis_type: Literal["static", "buckling"] = "static"
+    eigenvalues: list[float] = Field(default_factory=list)
+    critical_eigenvalue: float | None = None
     passed: bool = False
     analysis_seconds: float | None = None
 
@@ -42,10 +49,14 @@ class AnalysisState(BaseModel):
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
+    analysis_type: Literal["static", "buckling"] = "static"
+    eigenvalues: list[float] = Field(default_factory=list)
+    critical_eigenvalue: float | None = None
     passed: bool = False
     load_cases: dict[str, LoadCaseAnalysisState] = Field(default_factory=dict)
     worst_case_name: str | None = None
     aggregated_stress: AggregatedStressResult | None = None
+    eigenvalue_constraints: dict[str, EigenvalueConstraintResult] = Field(default_factory=dict)
     analysis_seconds: float | None = None
 
 

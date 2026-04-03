@@ -2,7 +2,10 @@ from pathlib import Path
 
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
-from mass_town.constraints import aggregate_case_stresses
+from mass_town.constraints import (
+    aggregate_case_stresses,
+    evaluate_minimum_buckling_load_factor_constraint,
+)
 from mass_town.design_variables import (
     DesignVariableContext,
     DesignVariableMappingError,
@@ -83,8 +86,10 @@ class FEAAgent(BaseAgent):
             constraints=state.constraints,
             allowable_stress=config.allowable_stress,
             case_name=config.fea.case_name,
+            analysis_type=config.fea.analysis_type,
             load_cases=load_cases,
             write_solution=config.fea.write_solution,
+            buckling_setup=config.fea.buckling_setup,
             shell_setup=config.fea.shell_setup,
             solid_setup=config.fea.solid_setup,
         )
@@ -147,9 +152,22 @@ class FEAAgent(BaseAgent):
 
         normalized_case_results = self._normalized_case_results(fea_result, request)
         ordered_case_names = list(load_cases)
+        minimum_buckling_load_factor = evaluate_minimum_buckling_load_factor_constraint(
+            {
+                case_name: tuple(case_result.eigenvalues)
+                for case_name, case_result in normalized_case_results.items()
+            },
+            request.constraints.minimum_buckling_load_factor,
+        )
         worst_case_name = self._select_worst_case_name(
             normalized_case_results,
             ordered_case_names,
+            analysis_type=request.analysis_type,
+            minimum_buckling_load_factor_case=(
+                minimum_buckling_load_factor.controlling_case
+                if minimum_buckling_load_factor is not None
+                else None
+            ),
         )
         worst_case_result = (
             normalized_case_results[worst_case_name]
@@ -184,10 +202,13 @@ class FEAAgent(BaseAgent):
         if not normalized_case_results and fea_result.max_stress is not None:
             passed = passed and fea_result.max_stress <= config.allowable_stress
         if aggregated_stress is not None:
-            passed = aggregated_stress.passed
+            passed = passed and aggregated_stress.passed
+        if minimum_buckling_load_factor is not None:
+            passed = passed and minimum_buckling_load_factor.passed
         metadata.update(
             {
                 "backend": fea_result.backend_name,
+                "analysis_type": request.analysis_type,
                 "passed": passed,
                 "load_case_count": len(normalized_case_results),
                 "load_case_names": ",".join(normalized_case_results),
@@ -209,6 +230,10 @@ class FEAAgent(BaseAgent):
             metadata["displacement_norm"] = round(worst_case_result.displacement_norm, 6)
         elif fea_result.displacement_norm is not None:
             metadata["displacement_norm"] = round(fea_result.displacement_norm, 6)
+        if worst_case_result is not None and worst_case_result.critical_eigenvalue is not None:
+            metadata["critical_eigenvalue"] = round(worst_case_result.critical_eigenvalue, 6)
+        elif fea_result.critical_eigenvalue is not None:
+            metadata["critical_eigenvalue"] = round(fea_result.critical_eigenvalue, 6)
         if fea_result.log_path is not None:
             metadata["log_path"] = str(fea_result.log_path.relative_to(run_root))
         if aggregated_stress is not None:
@@ -224,6 +249,24 @@ class FEAAgent(BaseAgent):
             if aggregated_stress.quality_summary_path is not None:
                 metadata["aggregated_stress_quality_summary_path"] = (
                     aggregated_stress.quality_summary_path
+                )
+        if minimum_buckling_load_factor is not None:
+            metadata["minimum_buckling_load_factor_mode"] = minimum_buckling_load_factor.mode
+            metadata["minimum_buckling_load_factor_minimum"] = round(
+                minimum_buckling_load_factor.minimum,
+                6,
+            )
+            metadata["minimum_buckling_load_factor_passed"] = (
+                minimum_buckling_load_factor.passed
+            )
+            if minimum_buckling_load_factor.value is not None:
+                metadata["minimum_buckling_load_factor_value"] = round(
+                    minimum_buckling_load_factor.value,
+                    6,
+                )
+            if minimum_buckling_load_factor.controlling_case is not None:
+                metadata["minimum_buckling_load_factor_controlling_case"] = (
+                    minimum_buckling_load_factor.controlling_case
                 )
 
         result_files = list(fea_result.result_files)
@@ -248,7 +291,16 @@ class FEAAgent(BaseAgent):
                 "mass": case_result.mass,
                 "max_stress": case_result.max_stress,
                 "displacement_norm": case_result.displacement_norm,
-                "passed": self._case_passed(case_result, config.allowable_stress),
+                "analysis_type": case_result.analysis_type,
+                "eigenvalues": list(case_result.eigenvalues),
+                "critical_eigenvalue": case_result.critical_eigenvalue,
+                "passed": (
+                    self._case_passed(case_result, config.allowable_stress)
+                    and self._case_satisfies_minimum_buckling_load_factor(
+                        case_result,
+                        request.constraints.minimum_buckling_load_factor,
+                    )
+                ),
                 "analysis_seconds": case_result.analysis_seconds,
             }
             for case_name, case_result in normalized_case_results.items()
@@ -274,6 +326,18 @@ class FEAAgent(BaseAgent):
                     and worst_case_result.displacement_norm is not None
                     else fea_result.displacement_norm
                 ),
+                "analysis_type": request.analysis_type,
+                "eigenvalues": (
+                    list(worst_case_result.eigenvalues)
+                    if worst_case_result is not None and worst_case_result.eigenvalues
+                    else list(fea_result.eigenvalues)
+                ),
+                "critical_eigenvalue": (
+                    worst_case_result.critical_eigenvalue
+                    if worst_case_result is not None
+                    and worst_case_result.critical_eigenvalue is not None
+                    else fea_result.critical_eigenvalue
+                ),
                 "passed": passed,
                 "load_cases": analysis_state_load_cases,
                 "worst_case_name": worst_case_name,
@@ -282,6 +346,15 @@ class FEAAgent(BaseAgent):
                     if aggregated_stress is not None
                     else None
                 ),
+                "eigenvalue_constraints": {
+                    "minimum_buckling_load_factor": (
+                        minimum_buckling_load_factor.model_dump(mode="python")
+                        if minimum_buckling_load_factor is not None
+                        else None
+                    )
+                }
+                if minimum_buckling_load_factor is not None
+                else {},
                 "analysis_seconds": analysis_seconds,
             }
         }
@@ -301,6 +374,32 @@ class FEAAgent(BaseAgent):
                     "method": aggregated_stress.method,
                     "backend": fea_result.backend_name,
                     "controlling_case": aggregated_stress.controlling_case or "",
+                },
+            )
+            return AgentResult(
+                status="failure",
+                task=self.task_name,
+                message=diagnostic.message,
+                diagnostics=[diagnostic],
+                artifacts=artifacts,
+                updates=updates,
+            )
+
+        if (
+            minimum_buckling_load_factor is not None
+            and not minimum_buckling_load_factor.passed
+            and minimum_buckling_load_factor.value is not None
+        ):
+            diagnostic = Diagnostic(
+                code="analysis.minimum_buckling_load_factor_not_met",
+                message="Minimum buckling load factor constraint is not satisfied.",
+                task=self.task_name,
+                details={
+                    "buckling_load_factor": round(minimum_buckling_load_factor.value, 3),
+                    "minimum": minimum_buckling_load_factor.minimum,
+                    "mode": minimum_buckling_load_factor.mode,
+                    "backend": fea_result.backend_name,
+                    "controlling_case": minimum_buckling_load_factor.controlling_case or "",
                 },
             )
             return AgentResult(
@@ -370,6 +469,9 @@ class FEAAgent(BaseAgent):
                 mass=fea_result.mass,
                 max_stress=fea_result.max_stress,
                 displacement_norm=fea_result.displacement_norm,
+                analysis_type=fea_result.analysis_type,
+                eigenvalues=list(fea_result.eigenvalues),
+                critical_eigenvalue=fea_result.critical_eigenvalue,
                 metadata=dict(fea_result.metadata),
                 log_path=fea_result.log_path,
                 analysis_seconds=fea_result.analysis_seconds,
@@ -380,6 +482,9 @@ class FEAAgent(BaseAgent):
         self,
         case_results: dict[str, FEALoadCaseResult],
         ordered_case_names: list[str],
+        *,
+        analysis_type: str,
+        minimum_buckling_load_factor_case: str | None = None,
     ) -> str | None:
         candidate_names = [name for name in ordered_case_names if name in case_results]
         if not candidate_names:
@@ -387,7 +492,23 @@ class FEAAgent(BaseAgent):
         if not candidate_names:
             return None
 
+        if minimum_buckling_load_factor_case in candidate_names:
+            return minimum_buckling_load_factor_case
+
         best_name: str | None = None
+        if analysis_type == "buckling":
+            best_eigenvalue: float | None = None
+            for case_name in candidate_names:
+                critical_eigenvalue = case_results[case_name].critical_eigenvalue
+                if critical_eigenvalue is None:
+                    if best_name is None:
+                        best_name = case_name
+                    continue
+                if best_eigenvalue is None or critical_eigenvalue < best_eigenvalue:
+                    best_name = case_name
+                    best_eigenvalue = critical_eigenvalue
+            return best_name or candidate_names[0]
+
         best_stress: float | None = None
         for case_name in candidate_names:
             max_stress = case_results[case_name].max_stress
@@ -422,6 +543,17 @@ class FEAAgent(BaseAgent):
         if case_result.max_stress is not None and case_result.max_stress > allowable_stress:
             return False
         return True
+
+    def _case_satisfies_minimum_buckling_load_factor(
+        self,
+        case_result: FEALoadCaseResult,
+        constraint: object,
+    ) -> bool:
+        if constraint is None:
+            return True
+        if len(case_result.eigenvalues) <= constraint.mode:
+            return False
+        return float(case_result.eigenvalues[constraint.mode]) >= float(constraint.minimum)
 
     def _relative_case_result_path(
         self,

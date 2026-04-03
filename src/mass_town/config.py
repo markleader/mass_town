@@ -8,6 +8,7 @@ from mass_town.design_variables import (
     DesignVariableDefinition,
     ensure_unique_design_variable_definitions,
 )
+from mass_town.disciplines.fea.models import FEABucklingSetup
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 from mass_town.disciplines.fea.solid_setup import FEASolidSetup
 
@@ -29,7 +30,9 @@ class FEAConfig(BaseModel):
     tool: str = "auto"
     model_input_path: str | None = None
     case_name: str = "static"
+    analysis_type: Literal["static", "buckling"] = "static"
     write_solution: bool = True
+    buckling_setup: FEABucklingSetup | None = None
     shell_setup: FEAShellSetup | None = None
     solid_setup: FEASolidSetup | None = None
 

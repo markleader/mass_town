@@ -1,0 +1,34 @@
+max_iterations: 4
+allowable_stress: 3000000000.0
+fea:
+  tool: tacs
+  model_input_path: inputs/model/plate.bdf
+  case_name: axial_compression
+  analysis_type: buckling
+  write_solution: true
+  buckling_setup:
+    sigma: 5.0
+    num_eigenvalues: 5
+  shell_setup:
+    node_sets:
+      loaded_edge:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: max
+    loads:
+      - node_set: loaded_edge
+        load_key: force_x
+        direction: [-1.0, 0.0, 0.0]
+        distribution: equal
+design_variables:
+  - id: thickness
+    name: Plate Thickness
+    type: scalar_thickness
+    initial_value: 0.01
+    bounds:
+      lower: 0.002
+      upper: 0.05
+    units: m
+    active: true
+initial_tasks:
+  - fea

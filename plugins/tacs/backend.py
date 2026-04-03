@@ -54,7 +54,24 @@ class TacsFEABackend(FEABackend):
 
         try:
             bdf_info = self._load_bdf(model_path, bdf_class)
-            if self._is_shell_model(bdf_info):
+            if request.analysis_type == "buckling":
+                if self._is_shell_model(bdf_info):
+                    analysis = self._run_shell_buckling_analysis(
+                        request=request,
+                        bdf_info=bdf_info,
+                        bdf_class=bdf_class,
+                        pyTACS=pyTACS,
+                        functions=functions,
+                        constitutive=constitutive,
+                        elements=elements,
+                        output_directory=solution_directory,
+                    )
+                else:
+                    raise ValueError(
+                        "The tacs buckling path currently supports shell BDF models with "
+                        "explicit shell load configuration."
+                    )
+            elif self._is_shell_model(bdf_info):
                 analysis = self._run_shell_analysis(
                     request=request,
                     bdf_info=bdf_info,
@@ -98,6 +115,7 @@ class TacsFEABackend(FEABackend):
             case_summary = {
                 "backend": self.name,
                 "case_name": case_name,
+                "analysis_type": request.analysis_type,
                 "input_model": str(model_path),
                 "load_source": case_analysis["load_source"],
                 "loads": requested_case_loads.get(case_name, {}),
@@ -107,10 +125,19 @@ class TacsFEABackend(FEABackend):
                 "raw_max_stress": case_analysis.get("raw_max_stress"),
                 "raw_max_stress_source": case_analysis.get("raw_max_stress_source"),
                 "displacement_norm": case_analysis["displacement_norm"],
-                "functions": case_analysis["function_values"],
+                "functions": case_analysis.get("function_values", {}),
+                "static_functions": case_analysis.get("static_function_values"),
+                "buckling_functions": case_analysis.get("buckling_function_values"),
+                "eigenvalues": case_analysis.get("eigenvalues", []),
+                "critical_eigenvalue": case_analysis.get("critical_eigenvalue"),
                 "boundary_conditions": case_analysis.get("boundary_conditions"),
                 "analysis_seconds": case_analysis["analysis_seconds"],
             }
+            if request.analysis_type == "buckling":
+                case_summary["buckling_load_factors"] = case_analysis.get("eigenvalues", [])
+                case_summary["critical_buckling_load_factor"] = case_analysis.get(
+                    "critical_eigenvalue"
+                )
             if "selected_case_name" in case_analysis:
                 case_summary["selected_case_name"] = case_analysis["selected_case_name"]
             case_summary_path.write_text(json.dumps(case_summary, indent=2, sort_keys=True) + "\n")
@@ -118,8 +145,9 @@ class TacsFEABackend(FEABackend):
             case_metadata: dict[str, str | float | int | bool] = {
                 "input_model": str(model_path),
                 "case_name": case_name,
+                "analysis_type": request.analysis_type,
                 "load_source": case_analysis["load_source"],
-                "function_names": ",".join(sorted(case_analysis["function_values"])),
+                "function_names": ",".join(sorted(case_analysis.get("function_values", {}))),
             }
             if "selected_case_name" in case_analysis:
                 case_metadata["selected_case_name"] = case_analysis["selected_case_name"]
@@ -133,6 +161,11 @@ class TacsFEABackend(FEABackend):
             if case_analysis.get("raw_max_stress_source") is not None:
                 case_metadata["raw_max_stress_source"] = str(
                     case_analysis["raw_max_stress_source"]
+                )
+            if case_analysis.get("critical_eigenvalue") is not None:
+                case_metadata["critical_eigenvalue"] = round(
+                    float(case_analysis["critical_eigenvalue"]),
+                    6,
                 )
             if backend_version is not None:
                 case_metadata["backend_version"] = backend_version
@@ -148,20 +181,34 @@ class TacsFEABackend(FEABackend):
                 mass=case_analysis["mass"],
                 max_stress=case_analysis["max_stress"],
                 displacement_norm=case_analysis["displacement_norm"],
+                analysis_type=request.analysis_type,
+                eigenvalues=list(case_analysis.get("eigenvalues", [])),
+                critical_eigenvalue=case_analysis.get("critical_eigenvalue"),
                 metadata=case_metadata,
                 analysis_seconds=case_analysis["analysis_seconds"],
             )
             case_result_files.append(case_summary_path)
             summary_case_data[case_name] = {
+                "analysis_type": request.analysis_type,
                 "mass": case_analysis["mass"],
                 "failure_index": case_analysis["failure_index"],
                 "max_stress": case_analysis["max_stress"],
                 "raw_max_stress": case_analysis.get("raw_max_stress"),
                 "raw_max_stress_source": case_analysis.get("raw_max_stress_source"),
                 "displacement_norm": case_analysis["displacement_norm"],
+                "eigenvalues": case_analysis.get("eigenvalues", []),
+                "critical_eigenvalue": case_analysis.get("critical_eigenvalue"),
                 "analysis_seconds": case_analysis["analysis_seconds"],
                 "summary_path": str(case_summary_path),
             }
+            if request.analysis_type == "buckling":
+                summary_case_data[case_name]["buckling_load_factors"] = case_analysis.get(
+                    "eigenvalues",
+                    [],
+                )
+                summary_case_data[case_name]["critical_buckling_load_factor"] = case_analysis.get(
+                    "critical_eigenvalue"
+                )
             if "selected_case_name" in case_analysis:
                 summary_case_data[case_name]["selected_case_name"] = case_analysis["selected_case_name"]
 
@@ -177,6 +224,7 @@ class TacsFEABackend(FEABackend):
         summary = {
             "backend": self.name,
             "case_name": analysis["case_name"],
+            "analysis_type": request.analysis_type,
             "input_model": str(model_path),
             "load_source": analysis["load_source"],
             "loads": requested_case_loads.get(analysis["case_name"], {}),
@@ -185,7 +233,11 @@ class TacsFEABackend(FEABackend):
             "failure_index": analysis["failure_index"],
             "max_stress": analysis["max_stress"],
             "displacement_norm": analysis["displacement_norm"],
-            "functions": analysis["function_values"],
+            "functions": analysis.get("function_values", {}),
+            "static_functions": analysis.get("static_function_values"),
+            "buckling_functions": analysis.get("buckling_function_values"),
+            "eigenvalues": analysis.get("eigenvalues", []),
+            "critical_eigenvalue": analysis.get("critical_eigenvalue"),
             "boundary_conditions": analysis.get("boundary_conditions"),
             "worst_case_name": analysis["case_name"],
             "aggregation_quality_summary_path": (
@@ -195,6 +247,9 @@ class TacsFEABackend(FEABackend):
             ),
             "analysis_seconds": analysis["analysis_seconds"],
         }
+        if request.analysis_type == "buckling":
+            summary["buckling_load_factors"] = analysis.get("eigenvalues", [])
+            summary["critical_buckling_load_factor"] = analysis.get("critical_eigenvalue")
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
         log_path.write_text(
             "TACS analysis completed successfully.\n"
@@ -205,13 +260,16 @@ class TacsFEABackend(FEABackend):
         metadata: dict[str, str | float | int | bool] = {
             "input_model": str(model_path),
             "case_name": analysis["case_name"],
+            "analysis_type": request.analysis_type,
             "load_source": analysis["load_source"],
-            "function_names": ",".join(sorted(analysis["function_values"])),
+            "function_names": ",".join(sorted(analysis.get("function_values", {}))),
             "load_case_count": len(case_results),
             "worst_case_name": analysis["case_name"],
         }
         if analysis["failure_index"] is not None:
             metadata["failure_index"] = round(float(analysis["failure_index"]), 6)
+        if analysis.get("critical_eigenvalue") is not None:
+            metadata["critical_eigenvalue"] = round(float(analysis["critical_eigenvalue"]), 6)
         if backend_version is not None:
             metadata["backend_version"] = backend_version
         if request.mesh_input_path is not None:
@@ -231,6 +289,9 @@ class TacsFEABackend(FEABackend):
             mass=analysis["mass"],
             max_stress=analysis["max_stress"],
             displacement_norm=analysis["displacement_norm"],
+            analysis_type=request.analysis_type,
+            eigenvalues=list(analysis.get("eigenvalues", [])),
+            critical_eigenvalue=analysis.get("critical_eigenvalue"),
             result_files=result_files,
             metadata=metadata,
             log_path=log_path,
@@ -486,6 +547,148 @@ class TacsFEABackend(FEABackend):
             ),
         }
 
+    def _run_shell_buckling_analysis(
+        self,
+        *,
+        request: FEARequest,
+        bdf_info: Any,
+        bdf_class: Any | None = None,
+        pyTACS: Any,
+        functions: Any,
+        constitutive: Any,
+        elements: Any,
+        output_directory: Path,
+    ) -> dict[str, Any]:
+        node_positions = self._extract_node_positions(bdf_info)
+        shell_elements = self._extract_shell_elements(bdf_info)
+        resolved_node_sets = self._resolve_shell_node_sets(
+            request=request,
+            node_positions=node_positions,
+            shell_elements=shell_elements,
+        )
+        shell_thickness = self._resolve_shell_thickness_assignments(
+            request,
+            request.model_input_path,
+            bdf_info,
+        )
+
+        case_analyses: dict[str, dict[str, Any]] = {}
+        requested_case_loads = self._requested_case_loads(request)
+        for case_name, case_loads in requested_case_loads.items():
+            started_at = time.perf_counter()
+            case_bdf_info = (
+                self._load_bdf(request.model_input_path, bdf_class)
+                if bdf_class is not None and request.model_input_path is not None
+                else bdf_info
+            )
+            constrained_nodes, bc_mode = self._apply_shell_boundary_conditions(
+                request=request,
+                bdf_info=case_bdf_info,
+                resolved_node_sets=resolved_node_sets,
+            )
+            assembler = pyTACS(case_bdf_info)
+            assembler.initialize(
+                self._build_shell_element_callback(
+                    constitutive=constitutive,
+                    elements=elements,
+                    default_thickness=shell_thickness["default_thickness"],
+                    component_thickness=shell_thickness["component_thickness"],
+                    allowable_stress=request.allowable_stress,
+                )
+            )
+
+            static_problem = assembler.createStaticProblem(case_name)
+            self._add_functions(static_problem, functions)
+            loaded_nodes, load_mode = self._apply_shell_loads(
+                request=request,
+                requested_loads=case_loads,
+                problem=static_problem,
+                resolved_node_sets=resolved_node_sets,
+            )
+            static_problem.solve()
+            if request.write_solution and hasattr(static_problem, "writeSolution"):
+                static_output_directory = ensure_directory(output_directory / case_name / "static")
+                static_problem.writeSolution(outputDir=str(static_output_directory))
+
+            static_function_values: dict[str, float] = {}
+            static_problem.evalFunctions(static_function_values)
+            failure_index = self._extract_failure_index(static_function_values)
+            max_stress = (
+                float(failure_index) * request.allowable_stress if failure_index is not None else None
+            )
+            raw_max_stress, raw_max_stress_source = self._extract_raw_max_stress(
+                static_problem,
+                fallback_stress=max_stress,
+            )
+            displacement_norm = self._extract_displacement_norm(static_problem)
+            mass = self._extract_mass(static_function_values)
+
+            buckling_problem = self._create_buckling_problem(assembler, request, case_name)
+            self._apply_shell_loads(
+                request=request,
+                requested_loads=case_loads,
+                problem=buckling_problem,
+                resolved_node_sets=resolved_node_sets,
+            )
+            buckling_problem.solve()
+            if request.write_solution and hasattr(buckling_problem, "writeSolution"):
+                buckling_output_directory = ensure_directory(output_directory / case_name / "buckling")
+                buckling_problem.writeSolution(outputDir=str(buckling_output_directory))
+
+            buckling_function_values: dict[str, float] = {}
+            buckling_problem.evalFunctions(buckling_function_values)
+            eigenvalues = self._extract_eigenvalues(buckling_function_values)
+            critical_eigenvalue = self._extract_critical_eigenvalue(eigenvalues)
+
+            case_analyses[case_name] = {
+                "case_name": case_name,
+                "load_source": "script",
+                "function_values": static_function_values,
+                "static_function_values": static_function_values,
+                "buckling_function_values": buckling_function_values,
+                "mass": mass,
+                "failure_index": failure_index,
+                "max_stress": max_stress,
+                "raw_max_stress": raw_max_stress,
+                "raw_max_stress_source": raw_max_stress_source,
+                "displacement_norm": displacement_norm,
+                "eigenvalues": eigenvalues,
+                "critical_eigenvalue": critical_eigenvalue,
+                "boundary_conditions": {
+                    "constrained_node_count": len(constrained_nodes),
+                    "loaded_node_count": len(loaded_nodes),
+                    "bc_mode": bc_mode,
+                    "load_mode": load_mode,
+                },
+                "analysis_seconds": time.perf_counter() - started_at,
+            }
+
+        worst_case_name = self._select_case_name_by_metric(
+            case_analyses,
+            list(requested_case_loads),
+            metric="critical_eigenvalue",
+            reverse=False,
+        )
+        worst_case = case_analyses[worst_case_name]
+        return {
+            "case_name": worst_case_name,
+            "load_source": "script",
+            "function_values": worst_case["function_values"],
+            "static_function_values": worst_case["static_function_values"],
+            "buckling_function_values": worst_case["buckling_function_values"],
+            "mass": worst_case["mass"],
+            "failure_index": worst_case["failure_index"],
+            "max_stress": worst_case["max_stress"],
+            "displacement_norm": worst_case["displacement_norm"],
+            "eigenvalues": worst_case["eigenvalues"],
+            "critical_eigenvalue": worst_case["critical_eigenvalue"],
+            "boundary_conditions": worst_case["boundary_conditions"],
+            "load_cases": case_analyses,
+            "analysis_seconds": sum(
+                case_analysis["analysis_seconds"] for case_analysis in case_analyses.values()
+            ),
+        }
+
     def _run_bdf_analysis(
         self,
         *,
@@ -561,6 +764,18 @@ class TacsFEABackend(FEABackend):
                 case_analysis["analysis_seconds"] for case_analysis in case_analyses.values()
             ),
         }
+
+    def _create_buckling_problem(self, assembler: Any, request: FEARequest, case_name: str) -> Any:
+        buckling_setup = request.buckling_setup
+        sigma = buckling_setup.sigma if buckling_setup is not None else 10.0
+        num_eigenvalues = (
+            buckling_setup.num_eigenvalues if buckling_setup is not None else 5
+        )
+        return assembler.createBucklingProblem(
+            f"{case_name}_buckling",
+            sigma=sigma,
+            numEigs=num_eigenvalues,
+        )
 
     def _load_bdf(self, model_path: Path, bdf_class: Any) -> Any:
         bdf_info = bdf_class(debug=False, log=None)
@@ -1239,21 +1454,59 @@ class TacsFEABackend(FEABackend):
             return None
         return max(defined)
 
+    def _extract_eigenvalues(self, function_values: dict[str, float]) -> list[float]:
+        eigenpairs: list[tuple[int, float]] = []
+        pattern = re.compile(r"eigs[bm]\.(\d+)$")
+        for name, value in function_values.items():
+            match = pattern.search(name.lower())
+            if match is None:
+                continue
+            eigenpairs.append((int(match.group(1)), float(value)))
+        return [value for _, value in sorted(eigenpairs, key=lambda item: item[0])]
+
+    def _extract_critical_eigenvalue(self, eigenvalues: list[float]) -> float | None:
+        for value in eigenvalues:
+            return float(value)
+        return None
+
+    def _select_case_name_by_metric(
+        self,
+        case_analyses: dict[str, dict[str, Any]],
+        ordered_case_names: list[str],
+        *,
+        metric: str,
+        reverse: bool,
+    ) -> str:
+        candidate_names = ordered_case_names or list(case_analyses)
+        best_name = candidate_names[0]
+        best_value = case_analyses[best_name].get(metric)
+        for case_name in candidate_names:
+            metric_value = case_analyses[case_name].get(metric)
+            if metric_value is None:
+                continue
+            if best_value is None:
+                best_name = case_name
+                best_value = metric_value
+                continue
+            if reverse and metric_value > best_value:
+                best_name = case_name
+                best_value = metric_value
+            if not reverse and metric_value < best_value:
+                best_name = case_name
+                best_value = metric_value
+        return best_name
+
     def _select_worst_case_name(
         self,
         case_analyses: dict[str, dict[str, Any]],
         ordered_case_names: list[str],
     ) -> str:
-        best_name = ordered_case_names[0] if ordered_case_names else next(iter(case_analyses))
-        best_stress = case_analyses[best_name]["max_stress"]
-        for case_name in ordered_case_names:
-            max_stress = case_analyses[case_name]["max_stress"]
-            if max_stress is None:
-                continue
-            if best_stress is None or max_stress > best_stress:
-                best_name = case_name
-                best_stress = max_stress
-        return best_name
+        return self._select_case_name_by_metric(
+            case_analyses,
+            ordered_case_names,
+            metric="max_stress",
+            reverse=True,
+        )
 
     def _add_functions(self, problem: Any, functions: Any) -> None:
         if hasattr(problem, "addFunction"):
