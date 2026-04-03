@@ -102,8 +102,10 @@ class WorkflowEngine:
         if "mesh_state" in result.updates:
             state.mesh_state = state.mesh_state.model_copy(update=result.updates["mesh_state"])
         if "analysis_state" in result.updates:
-            state.analysis_state = state.analysis_state.model_copy(
-                update=result.updates["analysis_state"]
+            merged_analysis_state = state.analysis_state.model_dump(mode="python")
+            merged_analysis_state.update(result.updates["analysis_state"])
+            state.analysis_state = state.analysis_state.__class__.model_validate(
+                merged_analysis_state
             )
         if "design_variables" in result.updates:
             state.design_variables = dict(result.updates["design_variables"])
@@ -139,6 +141,10 @@ class WorkflowEngine:
         latest_mesh_path = state.mesh_state.mesh_path
         analysis_log_path = self._latest_artifact_metadata_value(state, "fea-summary", "log_path")
         mesh_log_path = self._latest_artifact_metadata_value(state, "mesh-output", "log_path")
+        load_case_results = {
+            case_name: case_state.model_dump(mode="json")
+            for case_name, case_state in state.analysis_state.load_cases.items()
+        }
         summary = {
             "run_id": state.run_id,
             "problem_name": state.problem_name,
@@ -150,6 +156,9 @@ class WorkflowEngine:
             "active_design_variables": active_design_variables,
             "mass": state.analysis_state.mass,
             "max_stress": state.analysis_state.max_stress,
+            "worst_case_name": state.analysis_state.worst_case_name,
+            "analysis_seconds": state.analysis_state.analysis_seconds,
+            "load_case_results": load_case_results,
             "allowable_stress": self.config.allowable_stress,
             "artifact_paths": {
                 "workflow_log": str((layout.logs_dir / "workflow.log").relative_to(run_root)),
@@ -174,6 +183,7 @@ class WorkflowEngine:
                     "status": state.status,
                     "iteration_count": state.iteration,
                     "feasible": state.status == "recovered" and state.analysis_state.passed,
+                    "worst_case_name": state.analysis_state.worst_case_name or "",
                 },
             )
         )

@@ -2,9 +2,10 @@ import importlib
 import json
 from pathlib import Path
 import re
+import time
 from typing import Any
 
-from mass_town.disciplines.fea import FEABackend, FEARequest, FEAResult
+from mass_town.disciplines.fea import FEABackend, FEALoadCaseResult, FEARequest, FEAResult
 from mass_town.storage.filesystem import ensure_directory
 
 from .shell_model import (
@@ -56,6 +57,7 @@ class TacsFEABackend(FEABackend):
                 analysis = self._run_shell_analysis(
                     request=request,
                     bdf_info=bdf_info,
+                    bdf_class=bdf_class,
                     pyTACS=pyTACS,
                     functions=functions,
                     constitutive=constitutive,
@@ -74,35 +76,109 @@ class TacsFEABackend(FEABackend):
             log_path.write_text(f"TACS analysis failed: {exc}\n")
             raise RuntimeError(f"TACS analysis failed. See log: {log_path}") from exc
 
+        requested_case_loads = self._requested_case_loads(request)
+        backend_version = self._backend_version()
+        case_results: dict[str, FEALoadCaseResult] = {}
+        case_result_files: list[Path] = []
+        summary_case_data: dict[str, dict[str, Any]] = {}
+        for case_name, case_analysis in analysis["load_cases"].items():
+            case_summary_path = report_directory / f"{model_path.stem}.{case_name}.tacs.summary.json"
+            case_summary = {
+                "backend": self.name,
+                "case_name": case_name,
+                "input_model": str(model_path),
+                "load_source": case_analysis["load_source"],
+                "loads": requested_case_loads.get(case_name, {}),
+                "mass": case_analysis["mass"],
+                "failure_index": case_analysis["failure_index"],
+                "max_stress": case_analysis["max_stress"],
+                "displacement_norm": case_analysis["displacement_norm"],
+                "functions": case_analysis["function_values"],
+                "boundary_conditions": case_analysis.get("boundary_conditions"),
+                "analysis_seconds": case_analysis["analysis_seconds"],
+            }
+            if "selected_case_name" in case_analysis:
+                case_summary["selected_case_name"] = case_analysis["selected_case_name"]
+            case_summary_path.write_text(json.dumps(case_summary, indent=2, sort_keys=True) + "\n")
+
+            case_metadata: dict[str, str | float | int | bool] = {
+                "input_model": str(model_path),
+                "case_name": case_name,
+                "load_source": case_analysis["load_source"],
+                "function_names": ",".join(sorted(case_analysis["function_values"])),
+            }
+            if "selected_case_name" in case_analysis:
+                case_metadata["selected_case_name"] = case_analysis["selected_case_name"]
+            if case_analysis["failure_index"] is not None:
+                case_metadata["failure_index"] = round(float(case_analysis["failure_index"]), 6)
+            if backend_version is not None:
+                case_metadata["backend_version"] = backend_version
+            if request.mesh_input_path is not None:
+                case_metadata["mesh_input_path"] = str(request.mesh_input_path)
+
+            case_results[case_name] = FEALoadCaseResult(
+                passed=(
+                    case_analysis["failure_index"] is None
+                    or case_analysis["failure_index"] <= 1.0
+                ),
+                result_files=[case_summary_path],
+                mass=case_analysis["mass"],
+                max_stress=case_analysis["max_stress"],
+                displacement_norm=case_analysis["displacement_norm"],
+                metadata=case_metadata,
+                analysis_seconds=case_analysis["analysis_seconds"],
+            )
+            case_result_files.append(case_summary_path)
+            summary_case_data[case_name] = {
+                "mass": case_analysis["mass"],
+                "failure_index": case_analysis["failure_index"],
+                "max_stress": case_analysis["max_stress"],
+                "displacement_norm": case_analysis["displacement_norm"],
+                "analysis_seconds": case_analysis["analysis_seconds"],
+                "summary_path": str(case_summary_path),
+            }
+            if "selected_case_name" in case_analysis:
+                summary_case_data[case_name]["selected_case_name"] = case_analysis["selected_case_name"]
+
         summary = {
             "backend": self.name,
             "case_name": analysis["case_name"],
             "input_model": str(model_path),
             "load_source": analysis["load_source"],
-            "loads": request.loads,
+            "loads": requested_case_loads.get(analysis["case_name"], {}),
+            "load_cases": summary_case_data,
             "mass": analysis["mass"],
             "failure_index": analysis["failure_index"],
             "max_stress": analysis["max_stress"],
             "displacement_norm": analysis["displacement_norm"],
             "functions": analysis["function_values"],
             "boundary_conditions": analysis.get("boundary_conditions"),
+            "worst_case_name": analysis["case_name"],
+            "analysis_seconds": analysis["analysis_seconds"],
         }
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
-        log_path.write_text("TACS analysis completed successfully.\n")
+        log_path.write_text(
+            "TACS analysis completed successfully.\n"
+            f"case_count={len(case_results)}\n"
+            f"worst_case_name={analysis['case_name']}\n"
+        )
 
         metadata: dict[str, str | float | int | bool] = {
             "input_model": str(model_path),
             "case_name": analysis["case_name"],
             "load_source": analysis["load_source"],
             "function_names": ",".join(sorted(analysis["function_values"])),
+            "load_case_count": len(case_results),
+            "worst_case_name": analysis["case_name"],
         }
         if analysis["failure_index"] is not None:
             metadata["failure_index"] = round(float(analysis["failure_index"]), 6)
-        backend_version = self._backend_version()
         if backend_version is not None:
             metadata["backend_version"] = backend_version
         if request.mesh_input_path is not None:
             metadata["mesh_input_path"] = str(request.mesh_input_path)
+        if analysis["analysis_seconds"] is not None:
+            metadata["analysis_seconds"] = round(float(analysis["analysis_seconds"]), 6)
 
         passed = analysis["failure_index"] is None or analysis["failure_index"] <= 1.0
 
@@ -112,9 +188,12 @@ class TacsFEABackend(FEABackend):
             mass=analysis["mass"],
             max_stress=analysis["max_stress"],
             displacement_norm=analysis["displacement_norm"],
-            result_files=[summary_path],
+            result_files=[summary_path, *case_result_files],
             metadata=metadata,
             log_path=log_path,
+            load_cases=case_results,
+            worst_case_name=analysis["case_name"],
+            analysis_seconds=analysis["analysis_seconds"],
         )
 
     def _load_tacs_modules(self) -> tuple[Any, Any, Any, Any, Any]:
@@ -143,6 +222,7 @@ class TacsFEABackend(FEABackend):
         *,
         request: FEARequest,
         bdf_info: Any,
+        bdf_class: Any | None = None,
         pyTACS: Any,
         functions: Any,
         constitutive: Any,
@@ -156,11 +236,6 @@ class TacsFEABackend(FEABackend):
             node_positions=node_positions,
             shell_elements=shell_elements,
         )
-        constrained_nodes, bc_mode = self._apply_shell_boundary_conditions(
-            request=request,
-            bdf_info=bdf_info,
-            resolved_node_sets=resolved_node_sets,
-        )
 
         shell_thickness = self._resolve_shell_thickness_assignments(
             request,
@@ -168,50 +243,86 @@ class TacsFEABackend(FEABackend):
             bdf_info,
         )
 
-        assembler = pyTACS(bdf_info)
-        assembler.initialize(
-            self._build_shell_element_callback(
-                constitutive=constitutive,
-                elements=elements,
-                default_thickness=shell_thickness["default_thickness"],
-                component_thickness=shell_thickness["component_thickness"],
-                allowable_stress=request.allowable_stress,
+        case_analyses: dict[str, dict[str, Any]] = {}
+        requested_case_loads = self._requested_case_loads(request)
+        for case_name, case_loads in requested_case_loads.items():
+            started_at = time.perf_counter()
+            case_bdf_info = (
+                self._load_bdf(request.model_input_path, bdf_class)
+                if bdf_class is not None and request.model_input_path is not None
+                else bdf_info
             )
-        )
+            constrained_nodes, bc_mode = self._apply_shell_boundary_conditions(
+                request=request,
+                bdf_info=case_bdf_info,
+                resolved_node_sets=resolved_node_sets,
+            )
+            assembler = pyTACS(case_bdf_info)
+            assembler.initialize(
+                self._build_shell_element_callback(
+                    constitutive=constitutive,
+                    elements=elements,
+                    default_thickness=shell_thickness["default_thickness"],
+                    component_thickness=shell_thickness["component_thickness"],
+                    allowable_stress=request.allowable_stress,
+                )
+            )
+            problem = assembler.createStaticProblem(case_name)
+            self._add_functions(problem, functions)
+            loaded_nodes, load_mode = self._apply_shell_loads(
+                request=request,
+                requested_loads=case_loads,
+                problem=problem,
+                resolved_node_sets=resolved_node_sets,
+            )
+            problem.solve()
 
-        problem = assembler.createStaticProblem(request.case_name)
-        self._add_functions(problem, functions)
-        loaded_nodes, load_mode = self._apply_shell_loads(
-            request=request,
-            problem=problem,
-            resolved_node_sets=resolved_node_sets,
-        )
-        problem.solve()
+            if request.write_solution and hasattr(problem, "writeSolution"):
+                case_output_directory = ensure_directory(output_directory / case_name)
+                problem.writeSolution(outputDir=str(case_output_directory))
 
-        if request.write_solution and hasattr(problem, "writeSolution"):
-            problem.writeSolution(outputDir=str(output_directory))
+            function_values: dict[str, float] = {}
+            problem.evalFunctions(function_values)
+            failure_index = self._extract_failure_index(function_values)
+            max_stress = (
+                float(failure_index) * request.allowable_stress if failure_index is not None else None
+            )
+            case_analyses[case_name] = {
+                "case_name": case_name,
+                "load_source": "script",
+                "function_values": function_values,
+                "mass": self._extract_mass(function_values),
+                "failure_index": failure_index,
+                "max_stress": max_stress,
+                "displacement_norm": self._extract_displacement_norm(problem),
+                "boundary_conditions": {
+                    "constrained_node_count": len(constrained_nodes),
+                    "loaded_node_count": len(loaded_nodes),
+                    "bc_mode": bc_mode,
+                    "load_mode": load_mode,
+                },
+                "analysis_seconds": time.perf_counter() - started_at,
+            }
 
-        function_values: dict[str, float] = {}
-        problem.evalFunctions(function_values)
-        failure_index = self._extract_failure_index(function_values)
-        max_stress = (
-            float(failure_index) * request.allowable_stress if failure_index is not None else None
+        worst_case_name = self._select_worst_case_name(
+            case_analyses,
+            list(requested_case_loads),
         )
+        worst_case = case_analyses[worst_case_name]
 
         return {
-            "case_name": request.case_name,
+            "case_name": worst_case_name,
             "load_source": "script",
-            "function_values": function_values,
-            "mass": self._extract_mass(function_values),
-            "failure_index": failure_index,
-            "max_stress": max_stress,
-            "displacement_norm": self._extract_displacement_norm(problem),
-            "boundary_conditions": {
-                "constrained_node_count": len(constrained_nodes),
-                "loaded_node_count": len(loaded_nodes),
-                "bc_mode": bc_mode,
-                "load_mode": load_mode,
-            },
+            "function_values": worst_case["function_values"],
+            "mass": worst_case["mass"],
+            "failure_index": worst_case["failure_index"],
+            "max_stress": worst_case["max_stress"],
+            "displacement_norm": worst_case["displacement_norm"],
+            "boundary_conditions": worst_case["boundary_conditions"],
+            "load_cases": case_analyses,
+            "analysis_seconds": sum(
+                case_analysis["analysis_seconds"] for case_analysis in case_analyses.values()
+            ),
         }
 
     def _run_bdf_analysis(
@@ -229,28 +340,59 @@ class TacsFEABackend(FEABackend):
         if not problems:
             raise RuntimeError("TACS did not create any analysis cases from the BDF input.")
 
-        selected_name, problem = self._select_problem(problems, request.case_name)
-        self._add_functions(problem, functions)
-        problem.solve()
+        requested_case_loads = self._requested_case_loads(request)
+        strict_case_selection = self._requires_strict_case_selection(request)
+        case_analyses: dict[str, dict[str, Any]] = {}
+        for case_name in requested_case_loads:
+            started_at = time.perf_counter()
+            selected_name, problem = self._select_problem(
+                problems,
+                case_name,
+                strict=strict_case_selection,
+            )
+            self._add_functions(problem, functions)
+            problem.solve()
 
-        if request.write_solution and hasattr(problem, "writeSolution"):
-            problem.writeSolution(outputDir=str(output_directory))
+            if request.write_solution and hasattr(problem, "writeSolution"):
+                case_output_directory = ensure_directory(output_directory / case_name)
+                problem.writeSolution(outputDir=str(case_output_directory))
 
-        function_values: dict[str, float] = {}
-        problem.evalFunctions(function_values)
-        failure_index = self._extract_failure_index(function_values)
-        max_stress = (
-            float(failure_index) * request.allowable_stress if failure_index is not None else None
+            function_values: dict[str, float] = {}
+            problem.evalFunctions(function_values)
+            failure_index = self._extract_failure_index(function_values)
+            max_stress = (
+                float(failure_index) * request.allowable_stress if failure_index is not None else None
+            )
+            case_analyses[case_name] = {
+                "case_name": case_name,
+                "selected_case_name": selected_name,
+                "load_source": "bdf",
+                "function_values": function_values,
+                "mass": self._extract_mass(function_values),
+                "failure_index": failure_index,
+                "max_stress": max_stress,
+                "displacement_norm": self._extract_displacement_norm(problem),
+                "analysis_seconds": time.perf_counter() - started_at,
+            }
+
+        worst_case_name = self._select_worst_case_name(
+            case_analyses,
+            list(requested_case_loads),
         )
+        worst_case = case_analyses[worst_case_name]
 
         return {
-            "case_name": selected_name,
+            "case_name": worst_case_name,
             "load_source": "bdf",
-            "function_values": function_values,
-            "mass": self._extract_mass(function_values),
-            "failure_index": failure_index,
-            "max_stress": max_stress,
-            "displacement_norm": self._extract_displacement_norm(problem),
+            "function_values": worst_case["function_values"],
+            "mass": worst_case["mass"],
+            "failure_index": worst_case["failure_index"],
+            "max_stress": worst_case["max_stress"],
+            "displacement_norm": worst_case["displacement_norm"],
+            "load_cases": case_analyses,
+            "analysis_seconds": sum(
+                case_analysis["analysis_seconds"] for case_analysis in case_analyses.values()
+            ),
         }
 
     def _load_bdf(self, model_path: Path, bdf_class: Any) -> Any:
@@ -456,11 +598,12 @@ class TacsFEABackend(FEABackend):
         self,
         *,
         request: FEARequest,
+        requested_loads: dict[str, float],
         problem: Any,
         resolved_node_sets: dict[str, list[int]],
     ) -> tuple[list[int], str]:
         requested_loads = {
-            name: float(value) for name, value in request.loads.items() if abs(float(value)) > 1e-12
+            name: float(value) for name, value in requested_loads.items() if abs(float(value)) > 1e-12
         }
         if not requested_loads:
             return [], "none"
@@ -530,15 +673,66 @@ class TacsFEABackend(FEABackend):
             elements.append((str(element.type).upper(), node_ids))
         return elements
 
-    def _select_problem(self, problems: Any, requested_case_name: str) -> tuple[str, Any]:
+    def _select_problem(
+        self,
+        problems: Any,
+        requested_case_name: str,
+        *,
+        strict: bool = False,
+    ) -> tuple[str, Any]:
         if isinstance(problems, dict):
             if requested_case_name in problems:
                 return requested_case_name, problems[requested_case_name]
+            if strict:
+                available = ", ".join(str(name) for name in problems)
+                raise RuntimeError(
+                    f"Requested BDF load case '{requested_case_name}' was not found. "
+                    f"Available cases: {available}."
+                )
             selected_name = next(iter(problems))
             return str(selected_name), problems[selected_name]
         if isinstance(problems, list) and problems:
+            if strict:
+                raise RuntimeError(
+                    "Requested named BDF load cases, but pyTACS returned an unnamed problem list."
+                )
             return requested_case_name, problems[0]
         raise RuntimeError("Unsupported TACS problem collection returned from pyTACS.")
+
+    def _requested_case_loads(self, request: FEARequest) -> dict[str, dict[str, float]]:
+        if request.load_cases:
+            return {
+                case_name: dict(case.loads)
+                for case_name, case in request.load_cases.items()
+            }
+        return {
+            request.case_name: dict(request.loads),
+        }
+
+    def _requires_strict_case_selection(self, request: FEARequest) -> bool:
+        if len(request.load_cases) != 1:
+            return bool(request.load_cases)
+        if not request.load_cases:
+            return False
+        only_case_name = next(iter(request.load_cases))
+        only_case_loads = request.load_cases[only_case_name].loads
+        return not (only_case_name == request.case_name and dict(only_case_loads) == dict(request.loads))
+
+    def _select_worst_case_name(
+        self,
+        case_analyses: dict[str, dict[str, Any]],
+        ordered_case_names: list[str],
+    ) -> str:
+        best_name = ordered_case_names[0] if ordered_case_names else next(iter(case_analyses))
+        best_stress = case_analyses[best_name]["max_stress"]
+        for case_name in ordered_case_names:
+            max_stress = case_analyses[case_name]["max_stress"]
+            if max_stress is None:
+                continue
+            if best_stress is None or max_stress > best_stress:
+                best_name = case_name
+                best_stress = max_stress
+        return best_name
 
     def _add_functions(self, problem: Any, functions: Any) -> None:
         if hasattr(problem, "addFunction"):

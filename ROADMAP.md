@@ -125,6 +125,7 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 * Shell element support
 * BDF-first shell sizing example (`examples/shell_sizing_bdf_problem`)
+* Multi-load-case shell sizing example (`examples/shell_sizing_bdf_multi_case_problem`)
 * Multiple design variables (region-wise or element-wise thickness)
 * Multiple load cases
 * Constraint aggregation (KS or p-norm)

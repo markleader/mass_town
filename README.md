@@ -52,8 +52,10 @@ The checked-in structural workflow is TACS-backed and should be run from `fea`:
 pixi install -e fea
 pixi run -e fea run-fea-example
 pixi run -e fea run-shell-bdf-example
+pixi run -e fea run-shell-bdf-multi-case-example
 pixi run -e fea test-fea-baseline
 pixi run -e fea test-shell-bdf-example
+pixi run -e fea test-shell-bdf-multi-case-example
 ```
 
 TACS local wiring is intentionally explicit and local-only. The repository does
@@ -73,6 +75,7 @@ your checkout is elsewhere.
 - `docs/`: architecture, workflow, taxonomy, and roadmap notes
 - `examples/simple_structural_problem/`: runnable example input
 - `examples/shell_sizing_bdf_problem/`: BDF-first shell sizing example
+- `examples/shell_sizing_bdf_multi_case_problem/`: BDF-first shell sizing example with multiple static load cases
 - `tests/`: unit tests for the core orchestration and CLI
 
 Example projects now follow a canonical Phase 0 layout:

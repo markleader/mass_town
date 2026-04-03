@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,7 +7,13 @@ import pytest
 from mass_town.agents.fea_agent import FEAAgent
 from mass_town.config import WorkflowConfig
 from mass_town.design_variables import DesignVariableType
-from mass_town.disciplines.fea import FEABackend, FEABackendError, FEARequest, FEAResult
+from mass_town.disciplines.fea import (
+    FEABackend,
+    FEABackendError,
+    FEALoadCaseResult,
+    FEARequest,
+    FEAResult,
+)
 from mass_town.disciplines.fea.registry import BACKEND_LOADERS, resolve_fea_backend
 from mass_town.models.design_state import DesignState
 from plugins.tacs.backend import TacsFEABackend
@@ -43,14 +50,92 @@ class StubFEABackend(FEABackend):
 
         summary_path = self.result_path or request.report_directory / "stub-fea.json"
         summary_path.write_text('{"max_stress": 120.0}\n')
+        load_cases: dict[str, FEALoadCaseResult] = {}
+        case_result_files: list[Path] = []
+        requested_case_names = list(request.load_cases) or [request.case_name]
+        for case_name in requested_case_names:
+            case_summary_path = (
+                summary_path
+                if len(requested_case_names) == 1
+                else request.report_directory / f"stub-fea-{case_name}.json"
+            )
+            if case_summary_path != summary_path:
+                case_summary_path.write_text(f'{{"case_name": "{case_name}", "max_stress": 120.0}}\n')
+            load_cases[case_name] = FEALoadCaseResult(
+                passed=True,
+                result_files=[case_summary_path],
+                mass=24.0,
+                max_stress=120.0,
+                displacement_norm=0.0125,
+                metadata={"case_name": case_name, "failure_index": 2.0 / 3.0},
+                analysis_seconds=0.25,
+            )
+            case_result_files.append(case_summary_path)
         return FEAResult(
             backend_name=self.name,
             passed=True,
             mass=24.0,
             max_stress=120.0,
             displacement_norm=0.0125,
-            result_files=[summary_path],
+            result_files=[summary_path, *case_result_files] if len(load_cases) > 1 else [summary_path],
             metadata={"case_name": request.case_name, "failure_index": 2.0 / 3.0},
+            load_cases=load_cases,
+            worst_case_name=request.case_name,
+            analysis_seconds=0.25 * len(load_cases),
+        )
+
+
+class MultiCaseStubFEABackend(FEABackend):
+    name = "tacs"
+
+    def __init__(self) -> None:
+        self.last_request: FEARequest | None = None
+
+    def is_available(self) -> bool:
+        return True
+
+    def availability_reason(self) -> str | None:
+        return None
+
+    def run_analysis(self, request: FEARequest) -> FEAResult:
+        self.last_request = request
+        if request.model_input_path is None:
+            raise ValueError("The tacs backend requires a BDF model input path.")
+
+        overall_summary_path = request.report_directory / "multi-case-fea.json"
+        overall_summary_path.write_text('{"worst_case_name": "center_bending"}\n')
+
+        load_cases: dict[str, FEALoadCaseResult] = {}
+        stresses = {
+            "center_shear": 90.0,
+            "center_bending": 150.0,
+        }
+        for case_name in request.load_cases:
+            summary_path = request.report_directory / f"multi-case-{case_name}.json"
+            summary_path.write_text(
+                f'{{"case_name": "{case_name}", "max_stress": {stresses[case_name]:.1f}}}\n'
+            )
+            load_cases[case_name] = FEALoadCaseResult(
+                passed=True,
+                result_files=[summary_path],
+                mass=24.0,
+                max_stress=stresses[case_name],
+                displacement_norm=0.01 if case_name == "center_shear" else 0.02,
+                metadata={"case_name": case_name},
+                analysis_seconds=0.4 if case_name == "center_shear" else 0.6,
+            )
+
+        return FEAResult(
+            backend_name=self.name,
+            passed=True,
+            mass=24.0,
+            max_stress=150.0,
+            displacement_norm=0.02,
+            result_files=[overall_summary_path, *(case.result_files[0] for case in load_cases.values())],
+            metadata={"case_name": "center_bending"},
+            load_cases=load_cases,
+            worst_case_name="center_bending",
+            analysis_seconds=1.0,
         )
 
 
@@ -84,6 +169,7 @@ class FakeAssembler:
     def __init__(self, bdf_info: object) -> None:
         self.bdf_info = bdf_info
         self.problem = FakeProblem()
+        self.problems: dict[str, FakeProblem] = {}
         self.initialized = False
 
     def initialize(self, callback: object) -> None:
@@ -92,7 +178,11 @@ class FakeAssembler:
 
     def createStaticProblem(self, case_name: str) -> FakeProblem:
         self.case_name = case_name
-        return self.problem
+        problem = FakeProblem()
+        self.problems[case_name] = problem
+        if len(self.problems) == 1:
+            self.problem = problem
+        return problem
 
 
 class FakeBDFInfo:
@@ -337,9 +427,53 @@ def test_fea_agent_normalizes_backend_result(monkeypatch, tmp_path: Path) -> Non
     assert result.updates["analysis_state"]["max_stress"] == 120.0
     assert result.updates["analysis_state"]["displacement_norm"] == 0.0125
     assert result.updates["analysis_state"]["result_path"] == "results/fea-run/reports/stub-fea.json"
+    assert result.updates["analysis_state"]["worst_case_name"] == "static"
+    assert "static" in result.updates["analysis_state"]["load_cases"]
     assert result.artifacts[0].metadata["backend"] == "tacs"
     assert result.artifacts[0].metadata["mass"] == 24.0
     assert result.artifacts[0].metadata["failure_index"] == 2.0 / 3.0
+    assert backend.last_request is not None
+    assert list(backend.last_request.load_cases) == ["static"]
+    assert backend.last_request.load_cases["static"].loads == {"force": 120.0}
+
+
+def test_fea_agent_builds_multi_case_request_and_rolls_up_worst_case(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    backend = MultiCaseStubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {"fea": {"tool": "tacs", "model_input_path": "analysis/model.bdf"}}
+    )
+    state = DesignState(
+        run_id="multi-case-run",
+        problem_name="structural",
+        design_variables={"thickness": 0.8},
+        load_cases={
+            "center_shear": {"loads": {"force_x": 60.0}},
+            "center_bending": {"loads": {"force_z": 120.0}},
+        },
+        constraints={"max_stress": 180.0},
+    )
+
+    result = FEAAgent().run(state, config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert list(backend.last_request.load_cases) == ["center_shear", "center_bending"]
+    assert backend.last_request.load_cases["center_shear"].loads == {"force_x": 60.0}
+    assert backend.last_request.load_cases["center_bending"].loads == {"force_z": 120.0}
+    assert backend.last_request.design_variables == {"thickness": 0.8}
+    assert result.updates["analysis_state"]["worst_case_name"] == "center_bending"
+    assert result.updates["analysis_state"]["max_stress"] == 150.0
+    assert result.updates["analysis_state"]["analysis_seconds"] == 1.0
+    assert result.updates["analysis_state"]["load_cases"]["center_shear"]["max_stress"] == 90.0
+    assert result.updates["analysis_state"]["load_cases"]["center_bending"]["max_stress"] == 150.0
+    assert result.artifacts[0].metadata["worst_case_name"] == "center_bending"
 
 
 def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
@@ -613,6 +747,92 @@ def test_tacs_backend_applies_explicit_shell_setup_boundary_conditions_and_loads
     assert sum(load[1] for load in load_vectors) == -120.0
 
 
+def test_tacs_backend_run_analysis_writes_multi_case_shell_summaries(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements, spcs={1: object()})
+
+    class CaseAwareProblem(FakeProblem):
+        def __init__(self, case_name: str) -> None:
+            super().__init__()
+            self.case_name = case_name
+
+        def evalFunctions(self, values: dict[str, float]) -> None:
+            values["mass"] = 24.0
+            values["ks_vmfailure"] = 0.35 if self.case_name == "center_shear" else 0.9
+
+    class CaseAwareAssembler(FakeAssembler):
+        def createStaticProblem(self, case_name: str) -> FakeProblem:
+            self.case_name = case_name
+            problem = CaseAwareProblem(case_name)
+            self.problems[case_name] = problem
+            if len(self.problems) == 1:
+                self.problem = problem
+            return problem
+
+    assembler = CaseAwareAssembler(bdf_info)
+    model_path = tmp_path / "shell_model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    request = FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path / "reports",
+        log_directory=tmp_path / "logs",
+        solution_directory=tmp_path / "solver",
+        run_id="multi-case-shell",
+        allowable_stress=180.0,
+        load_cases={
+            "center_shear": {"loads": {"force_x": 80.0}},
+            "center_bending": {"loads": {"force_z": 120.0}},
+        },
+        shell_setup={
+            "node_sets": {
+                "center_node": {
+                    "selector": "closest_node_to_centroid",
+                }
+            },
+            "loads": [
+                {
+                    "node_set": "center_node",
+                    "load_key": "force_x",
+                    "direction": [1.0, 0.0, 0.0],
+                    "distribution": "equal",
+                },
+                {
+                    "node_set": "center_node",
+                    "load_key": "force_z",
+                    "direction": [0.0, 0.0, 1.0],
+                    "distribution": "equal",
+                },
+            ],
+        },
+    )
+
+    backend._load_tacs_modules = lambda: (
+        lambda input_bdf: assembler,
+        SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        object,
+    )
+    backend._load_bdf = lambda model_path, bdf_class: bdf_info
+
+    result = backend.run_analysis(request)
+
+    assert result.worst_case_name == "center_bending"
+    assert result.analysis_seconds is not None
+    assert set(result.load_cases) == {"center_shear", "center_bending"}
+    assert len(result.result_files) == 3
+    overall_summary = json.loads(result.result_files[0].read_text())
+    assert overall_summary["worst_case_name"] == "center_bending"
+    assert set(overall_summary["load_cases"]) == {"center_shear", "center_bending"}
+    bending_summary = json.loads((tmp_path / "reports" / "shell_model.center_bending.tacs.summary.json").read_text())
+    assert bending_summary["case_name"] == "center_bending"
+    assert bending_summary["max_stress"] == pytest.approx(162.0)
+    assert bending_summary["loads"] == {"force_z": 120.0}
+    assert "center_bending" in assembler.problems
+    assert "center_shear" in assembler.problems
+
+
 def test_tacs_backend_uses_existing_spcs_with_explicit_shell_load_selector(tmp_path: Path) -> None:
     backend = TacsFEABackend()
     node_positions, elements = _shell_node_positions_and_elements()
@@ -703,3 +923,87 @@ def test_tacs_backend_maps_elementwise_thickness_assignments_to_component_thickn
         bdf_info,
     )
     assert assignments["component_thickness"] == {7: 0.9}
+
+
+def test_tacs_backend_runs_multi_case_bdf_analysis() -> None:
+    backend = TacsFEABackend()
+
+    class NamedProblem(FakeProblem):
+        def __init__(self, case_name: str, failure_index: float) -> None:
+            super().__init__()
+            self.case_name = case_name
+            self.failure_index = failure_index
+
+        def evalFunctions(self, values: dict[str, float]) -> None:
+            values["mass"] = 30.0
+            values["ks_vmfailure"] = self.failure_index
+
+    class BdfAssembler:
+        def initialize(self) -> None:
+            return None
+
+        def createTACSProbsFromBDF(self) -> dict[str, NamedProblem]:
+            return {
+                "gust": NamedProblem("gust", 0.8),
+                "maneuver": NamedProblem("maneuver", 0.45),
+            }
+
+    request = FEARequest(
+        model_input_path=Path("model.bdf"),
+        report_directory=Path("reports"),
+        log_directory=Path("logs"),
+        solution_directory=Path("solver"),
+        run_id="bdf-multi-case",
+        allowable_stress=180.0,
+        load_cases={
+            "gust": {"loads": {}},
+            "maneuver": {"loads": {}},
+        },
+    )
+
+    result = backend._run_bdf_analysis(
+        request=request,
+        model_path=Path("model.bdf"),
+        pyTACS=lambda model_path: BdfAssembler(),
+        functions=SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        output_directory=Path("solver"),
+    )
+
+    assert result["case_name"] == "gust"
+    assert set(result["load_cases"]) == {"gust", "maneuver"}
+    assert result["load_cases"]["gust"]["selected_case_name"] == "gust"
+    assert result["load_cases"]["maneuver"]["selected_case_name"] == "maneuver"
+    assert result["load_cases"]["gust"]["max_stress"] == pytest.approx(144.0)
+
+
+def test_tacs_backend_reports_missing_named_bdf_case() -> None:
+    backend = TacsFEABackend()
+
+    class BdfAssembler:
+        def initialize(self) -> None:
+            return None
+
+        def createTACSProbsFromBDF(self) -> dict[str, FakeProblem]:
+            return {"gust": FakeProblem()}
+
+    request = FEARequest(
+        model_input_path=Path("model.bdf"),
+        report_directory=Path("reports"),
+        log_directory=Path("logs"),
+        solution_directory=Path("solver"),
+        run_id="bdf-missing-case",
+        allowable_stress=180.0,
+        load_cases={
+            "gust": {"loads": {}},
+            "maneuver": {"loads": {}},
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="Requested BDF load case 'maneuver'"):
+        backend._run_bdf_analysis(
+            request=request,
+            model_path=Path("model.bdf"),
+            pyTACS=lambda model_path: BdfAssembler(),
+            functions=SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+            output_directory=Path("solver"),
+        )

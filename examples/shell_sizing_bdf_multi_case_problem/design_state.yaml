@@ -1,0 +1,43 @@
+run_id: shell-sizing-bdf-multi-case-problem
+problem_name: shell_sizing_bdf_multi_case_problem
+status: pending
+iteration: 0
+design_variables:
+  thickness: 0.005
+  pid1_t: 0.005
+  pid2_t: 0.005
+  pid3_t: 0.005
+  pid4_t: 0.005
+  pid5_t: 0.005
+  pid6_t: 0.005
+  pid7_t: 0.005
+  pid8_t: 0.005
+  pid9_t: 0.005
+loads: {}
+load_cases:
+  center_bending:
+    loads:
+      force_z: 10000.0
+  center_shear:
+    loads:
+      force_x: 5000.0
+constraints:
+  max_stress: 3000000000.0
+geometry_state:
+  valid: true
+  notes: bdf-first
+mesh_state:
+  quality: 0.0
+  elements: 0
+analysis_state:
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  passed: false
+  load_cases: {}
+  worst_case_name: null
+  analysis_seconds: null
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

@@ -20,6 +20,20 @@ class MeshState(BaseModel):
     elements: int = 0
 
 
+class LoadCaseState(BaseModel):
+    loads: dict[str, float] = Field(default_factory=dict)
+
+
+class LoadCaseAnalysisState(BaseModel):
+    backend: str | None = None
+    result_path: str | None = None
+    mass: float | None = None
+    max_stress: float | None = None
+    displacement_norm: float | None = None
+    passed: bool = False
+    analysis_seconds: float | None = None
+
+
 class AnalysisState(BaseModel):
     backend: str | None = None
     result_path: str | None = None
@@ -27,6 +41,9 @@ class AnalysisState(BaseModel):
     max_stress: float | None = None
     displacement_norm: float | None = None
     passed: bool = False
+    load_cases: dict[str, LoadCaseAnalysisState] = Field(default_factory=dict)
+    worst_case_name: str | None = None
+    analysis_seconds: float | None = None
 
 
 class DecisionRecord(BaseModel):
@@ -49,6 +66,7 @@ class DesignState(BaseModel):
     iteration: int = 0
     design_variables: dict[str, float] = Field(default_factory=dict)
     loads: dict[str, float] = Field(default_factory=dict)
+    load_cases: dict[str, LoadCaseState] = Field(default_factory=dict)
     constraints: dict[str, float] = Field(default_factory=dict)
     geometry_state: GeometryState = Field(default_factory=GeometryState)
     mesh_state: MeshState = Field(default_factory=MeshState)

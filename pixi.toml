@@ -29,6 +29,7 @@ tacs = { path = "../tacs", editable = true }
 install-local-tacs = "python -m pip install -e \"${TACS_DIR:-$HOME/git/tacs}\""
 test-fea-baseline = "python -m pytest tests/test_phase0_baseline.py -q"
 test-shell-bdf-example = "python -m pytest tests/test_shell_sizing_bdf_example.py -q"
+test-shell-bdf-multi-case-example = "python -m pytest tests/test_shell_sizing_bdf_multi_case_example.py -q"
 
 [environments]
 default = { features = [] }
@@ -40,4 +41,5 @@ test = "python -m pytest"
 run-core-status = "python -m mass_town.cli status examples/simple_structural_problem/design_state.yaml"
 run-fea-example = "python -m mass_town.cli run examples/simple_structural_problem"
 run-shell-bdf-example = "python -m mass_town.cli run examples/shell_sizing_bdf_problem"
+run-shell-bdf-multi-case-example = "python -m mass_town.cli run examples/shell_sizing_bdf_multi_case_problem"
 run-example = "python -m mass_town.cli run examples/simple_structural_problem"

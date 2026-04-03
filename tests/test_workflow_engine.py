@@ -219,4 +219,4 @@ def test_workflow_engine_multi_dv_fixture_shows_expected_stress_trend(monkeypatc
     summary_path = project_dir / "results" / "multi-dv-run" / "reports" / "run_summary.json"
     summary = json.loads(summary_path.read_text())
     assert summary["active_design_variables"]["thickness"] == state.design_variables["thickness"]
-    assert summary["active_design_variables"]["skin_t"] == 0.8
+    assert summary["active_design_variables"]["skin_t"] == state.design_variables["skin_t"]

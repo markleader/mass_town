@@ -81,14 +81,14 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 1.3 Multiple load cases
 
-* [ ] Add support for multiple static load cases in one problem.
-* [ ] Decide how shared design variables are handled across cases.
-* [ ] Add problem definitions for:
+* [x] Add support for multiple static load cases in one problem.
+* [x] Decide how shared design variables are handled across cases.
+* [x] Add problem definitions for:
   * single load case
   * multiple load cases with shared constraints
-  * multiple load cases with aggregated constraints
+* [x] Document a future multiple load case problem definition for aggregated constraints (implementation deferred to 1.4).
 
-* [ ] Add reporting for worst-case load case.
+* [x] Add reporting for worst-case load case.
 
 #### 1.4 Constraint aggregation
 
