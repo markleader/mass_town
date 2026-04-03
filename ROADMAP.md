@@ -128,7 +128,7 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 * Multi-load-case shell sizing example (`examples/shell_sizing_bdf_multi_case_problem`)
 * Multiple design variables (region-wise or element-wise thickness)
 * Multiple load cases
-* Constraint aggregation (KS or p-norm)
+* Constraint aggregation (KS or p-norm, now implemented for the multi-load-case shell example)
 
 **Outcome:** A realistic structural sizing optimization problem
 
@@ -212,8 +212,8 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 1. Shell sizing with multiple design variables
 2. Multiple load case support
-3. Constraint aggregation
-4. Buckling-constrained example
+3. Buckling-constrained example
+4. Solid-element example
 
 These steps provide the minimum complexity needed before introducing higher-level orchestration.
 

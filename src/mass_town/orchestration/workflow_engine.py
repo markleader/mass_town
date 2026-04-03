@@ -157,6 +157,11 @@ class WorkflowEngine:
             "mass": state.analysis_state.mass,
             "max_stress": state.analysis_state.max_stress,
             "worst_case_name": state.analysis_state.worst_case_name,
+            "aggregated_stress": (
+                state.analysis_state.aggregated_stress.model_dump(mode="json")
+                if state.analysis_state.aggregated_stress is not None
+                else None
+            ),
             "analysis_seconds": state.analysis_state.analysis_seconds,
             "load_case_results": load_case_results,
             "allowable_stress": self.config.allowable_stress,
@@ -166,6 +171,11 @@ class WorkflowEngine:
                 "mesh_log": mesh_log_path,
                 "analysis_summary": state.analysis_state.result_path,
                 "analysis_log": analysis_log_path,
+                "aggregation_quality_summary": (
+                    state.analysis_state.aggregated_stress.quality_summary_path
+                    if state.analysis_state.aggregated_stress is not None
+                    else None
+                ),
                 "solver_directory": str(layout.solver_dir.relative_to(run_root)),
             },
         }

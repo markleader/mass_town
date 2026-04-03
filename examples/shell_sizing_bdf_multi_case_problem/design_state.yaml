@@ -23,6 +23,11 @@ load_cases:
       force_x: 5000.0
 constraints:
   max_stress: 3000000000.0
+  aggregated_stress:
+    method: ks
+    source: load_cases
+    allowable: 3000000000.0
+    ks_weight: 50.0
 geometry_state:
   valid: true
   notes: bdf-first

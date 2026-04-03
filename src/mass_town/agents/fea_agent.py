@@ -2,6 +2,7 @@ from pathlib import Path
 
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
+from mass_town.constraints import aggregate_case_stresses
 from mass_town.design_variables import (
     DesignVariableContext,
     DesignVariableMappingError,
@@ -163,12 +164,30 @@ class FEAAgent(BaseAgent):
             ]
             if case_times:
                 analysis_seconds = sum(case_times)
+        aggregation_quality_summary_path = self._relative_quality_summary_path(
+            fea_result.aggregation_quality_summary_path,
+            run_root,
+        )
+        aggregated_stress = aggregate_case_stresses(
+            {
+                case_name: case_result.max_stress
+                for case_name, case_result in normalized_case_results.items()
+            },
+            request.constraints,
+            config.allowable_stress,
+            quality_summary_path=aggregation_quality_summary_path,
+        )
 
         metadata = dict(fea_result.metadata)
+        passed = self._all_cases_passed(normalized_case_results, config.allowable_stress)
+        if not normalized_case_results and fea_result.max_stress is not None:
+            passed = passed and fea_result.max_stress <= config.allowable_stress
+        if aggregated_stress is not None:
+            passed = aggregated_stress.passed
         metadata.update(
             {
                 "backend": fea_result.backend_name,
-                "passed": self._all_cases_passed(normalized_case_results, config.allowable_stress),
+                "passed": passed,
                 "load_case_count": len(normalized_case_results),
                 "load_case_names": ",".join(normalized_case_results),
             }
@@ -191,6 +210,20 @@ class FEAAgent(BaseAgent):
             metadata["displacement_norm"] = round(fea_result.displacement_norm, 6)
         if fea_result.log_path is not None:
             metadata["log_path"] = str(fea_result.log_path.relative_to(run_root))
+        if aggregated_stress is not None:
+            metadata["aggregated_stress_method"] = aggregated_stress.method
+            metadata["aggregated_stress_allowable"] = round(aggregated_stress.allowable, 6)
+            metadata["aggregated_stress_passed"] = aggregated_stress.passed
+            if aggregated_stress.value is not None:
+                metadata["aggregated_stress_value"] = round(aggregated_stress.value, 6)
+            if aggregated_stress.controlling_case is not None:
+                metadata["aggregated_stress_controlling_case"] = (
+                    aggregated_stress.controlling_case
+                )
+            if aggregated_stress.quality_summary_path is not None:
+                metadata["aggregated_stress_quality_summary_path"] = (
+                    aggregated_stress.quality_summary_path
+                )
 
         result_files = list(fea_result.result_files)
         primary_result_path = (
@@ -206,10 +239,6 @@ class FEAAgent(BaseAgent):
                     metadata=metadata,
                 )
             )
-
-        passed = self._all_cases_passed(normalized_case_results, config.allowable_stress)
-        if not normalized_case_results and fea_result.max_stress is not None:
-            passed = passed and fea_result.max_stress <= config.allowable_stress
 
         analysis_state_load_cases = {
             case_name: {
@@ -247,9 +276,40 @@ class FEAAgent(BaseAgent):
                 "passed": passed,
                 "load_cases": analysis_state_load_cases,
                 "worst_case_name": worst_case_name,
+                "aggregated_stress": (
+                    aggregated_stress.model_dump(mode="python")
+                    if aggregated_stress is not None
+                    else None
+                ),
                 "analysis_seconds": analysis_seconds,
             }
         }
+
+        if (
+            aggregated_stress is not None
+            and not aggregated_stress.passed
+            and aggregated_stress.value is not None
+        ):
+            diagnostic = Diagnostic(
+                code="analysis.aggregated_stress_exceeded",
+                message="Aggregated stress exceeds allowable limit.",
+                task=self.task_name,
+                details={
+                    "aggregated_stress": round(aggregated_stress.value, 3),
+                    "allowable": aggregated_stress.allowable,
+                    "method": aggregated_stress.method,
+                    "backend": fea_result.backend_name,
+                    "controlling_case": aggregated_stress.controlling_case or "",
+                },
+            )
+            return AgentResult(
+                status="failure",
+                task=self.task_name,
+                message=diagnostic.message,
+                diagnostics=[diagnostic],
+                artifacts=artifacts,
+                updates=updates,
+            )
 
         if not passed and worst_case_result is not None and worst_case_result.max_stress is not None:
             diagnostic = Diagnostic(
@@ -370,3 +430,12 @@ class FEAAgent(BaseAgent):
         if not case_result.result_files:
             return None
         return str(case_result.result_files[0].relative_to(run_root))
+
+    def _relative_quality_summary_path(
+        self,
+        quality_summary_path: Path | None,
+        run_root: Path,
+    ) -> str | None:
+        if quality_summary_path is None:
+            return None
+        return str(quality_summary_path.relative_to(run_root))

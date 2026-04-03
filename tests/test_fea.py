@@ -476,6 +476,102 @@ def test_fea_agent_builds_multi_case_request_and_rolls_up_worst_case(
     assert result.artifacts[0].metadata["worst_case_name"] == "center_bending"
 
 
+def test_fea_agent_uses_aggregated_stress_for_pass_fail(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+
+    class AggregatedStressStubFEABackend(FEABackend):
+        name = "tacs"
+
+        def is_available(self) -> bool:
+            return True
+
+        def availability_reason(self) -> str | None:
+            return None
+
+        def run_analysis(self, request: FEARequest) -> FEAResult:
+            quality_summary_path = request.report_directory / "stress_aggregation_summary.json"
+            quality_summary_path.write_text('{"aggregated_stress_value": 170.0}\n')
+            load_cases = {
+                "center_shear": FEALoadCaseResult(
+                    passed=True,
+                    result_files=[request.report_directory / "center-shear.json"],
+                    mass=24.0,
+                    max_stress=150.0,
+                    displacement_norm=0.01,
+                    analysis_seconds=0.4,
+                ),
+                "center_bending": FEALoadCaseResult(
+                    passed=True,
+                    result_files=[request.report_directory / "center-bending.json"],
+                    mass=24.0,
+                    max_stress=170.0,
+                    displacement_norm=0.02,
+                    analysis_seconds=0.6,
+                ),
+            }
+            for case_result in load_cases.values():
+                case_result.result_files[0].write_text('{"ok": true}\n')
+
+            overall_summary_path = request.report_directory / "multi-case-fea.json"
+            overall_summary_path.write_text('{"worst_case_name": "center_bending"}\n')
+            return FEAResult(
+                backend_name=self.name,
+                passed=True,
+                mass=24.0,
+                max_stress=170.0,
+                displacement_norm=0.02,
+                result_files=[
+                    overall_summary_path,
+                    *(case.result_files[0] for case in load_cases.values()),
+                    quality_summary_path,
+                ],
+                load_cases=load_cases,
+                worst_case_name="center_bending",
+                aggregation_quality_summary_path=quality_summary_path,
+                analysis_seconds=1.0,
+            )
+
+    backend = AggregatedStressStubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {"fea": {"tool": "tacs", "model_input_path": "analysis/model.bdf"}}
+    )
+    state = DesignState(
+        run_id="aggregated-run",
+        problem_name="structural",
+        design_variables={"thickness": 0.8},
+        load_cases={
+            "center_shear": {"loads": {"force_x": 60.0}},
+            "center_bending": {"loads": {"force_z": 120.0}},
+        },
+        constraints={
+            "max_stress": 180.0,
+            "aggregated_stress": {
+                "method": "ks",
+                "allowable": 165.0,
+            },
+        },
+    )
+
+    result = FEAAgent().run(state, config, tmp_path)
+
+    assert result.status == "failure"
+    assert result.diagnostics[0].code == "analysis.aggregated_stress_exceeded"
+    aggregated_stress = result.updates["analysis_state"]["aggregated_stress"]
+    assert aggregated_stress["method"] == "ks"
+    assert aggregated_stress["allowable"] == 165.0
+    assert aggregated_stress["value"] == pytest.approx(170.0)
+    assert aggregated_stress["controlling_case"] == "center_bending"
+    assert (
+        aggregated_stress["quality_summary_path"]
+        == "results/aggregated-run/reports/stress_aggregation_summary.json"
+    )
+    assert result.updates["analysis_state"]["worst_case_name"] == "center_bending"
+    assert result.updates["analysis_state"]["max_stress"] == 170.0
+
+
 def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
     model_path = tmp_path / "analysis" / "model.bdf"
     model_path.parent.mkdir(parents=True)
@@ -831,6 +927,100 @@ def test_tacs_backend_run_analysis_writes_multi_case_shell_summaries(tmp_path: P
     assert bending_summary["loads"] == {"force_z": 120.0}
     assert "center_bending" in assembler.problems
     assert "center_shear" in assembler.problems
+
+
+def test_tacs_backend_writes_aggregation_quality_summary(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements, spcs={1: object()})
+
+    class CaseAwareProblem(FakeProblem):
+        def __init__(self, case_name: str) -> None:
+            super().__init__()
+            self.case_name = case_name
+
+        def evalFunctions(self, values: dict[str, float]) -> None:
+            values["mass"] = 24.0
+            values["ks_vmfailure"] = 0.42 if self.case_name == "center_shear" else 0.88
+
+        def getElementStresses(self) -> list[float]:
+            if self.case_name == "center_shear":
+                return [61.0, 70.0, 75.0]
+            return [120.0, 150.0, 168.0]
+
+    class CaseAwareAssembler(FakeAssembler):
+        def createStaticProblem(self, case_name: str) -> FakeProblem:
+            self.case_name = case_name
+            problem = CaseAwareProblem(case_name)
+            self.problems[case_name] = problem
+            if len(self.problems) == 1:
+                self.problem = problem
+            return problem
+
+    assembler = CaseAwareAssembler(bdf_info)
+    model_path = tmp_path / "shell_model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    request = FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path / "reports",
+        log_directory=tmp_path / "logs",
+        solution_directory=tmp_path / "solver",
+        run_id="multi-case-shell-aggregated",
+        allowable_stress=180.0,
+        load_cases={
+            "center_shear": {"loads": {"force_x": 80.0}},
+            "center_bending": {"loads": {"force_z": 120.0}},
+        },
+        constraints={
+            "max_stress": 180.0,
+            "aggregated_stress": {
+                "method": "ks",
+                "allowable": 175.0,
+            },
+        },
+        shell_setup={
+            "node_sets": {
+                "center_node": {
+                    "selector": "closest_node_to_centroid",
+                }
+            },
+            "loads": [
+                {
+                    "node_set": "center_node",
+                    "load_key": "force_x",
+                    "direction": [1.0, 0.0, 0.0],
+                    "distribution": "equal",
+                },
+                {
+                    "node_set": "center_node",
+                    "load_key": "force_z",
+                    "direction": [0.0, 0.0, 1.0],
+                    "distribution": "equal",
+                },
+            ],
+        },
+    )
+
+    backend._load_tacs_modules = lambda: (
+        lambda input_bdf: assembler,
+        SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        object,
+    )
+    backend._load_bdf = lambda model_path, bdf_class: bdf_info
+
+    result = backend.run_analysis(request)
+
+    assert result.aggregation_quality_summary_path is not None
+    quality_summary = json.loads(result.aggregation_quality_summary_path.read_text())
+    assert quality_summary["load_cases"]["center_bending"]["aggregated_input_stress"] == pytest.approx(
+        158.4
+    )
+    assert quality_summary["load_cases"]["center_bending"]["raw_max_stress"] == pytest.approx(168.0)
+    assert quality_summary["raw_global_max_stress"] == pytest.approx(168.0)
+    assert quality_summary["controlling_case_by_surrogate"] == "center_bending"
+    assert quality_summary["controlling_case_by_raw_max"] == "center_bending"
 
 
 def test_tacs_backend_uses_existing_spcs_with_explicit_shell_load_selector(tmp_path: Path) -> None:

@@ -75,7 +75,7 @@ your checkout is elsewhere.
 - `docs/`: architecture, workflow, taxonomy, and roadmap notes
 - `examples/simple_structural_problem/`: runnable example input
 - `examples/shell_sizing_bdf_problem/`: BDF-first shell sizing example
-- `examples/shell_sizing_bdf_multi_case_problem/`: BDF-first shell sizing example with multiple static load cases
+- `examples/shell_sizing_bdf_multi_case_problem/`: BDF-first shell sizing example with multiple static load cases and configurable aggregated stress constraints
 - `tests/`: unit tests for the core orchestration and CLI
 
 Example projects now follow a canonical Phase 0 layout:
@@ -86,6 +86,11 @@ Example projects now follow a canonical Phase 0 layout:
 - `results/<run_id>/mesh`: generated `.msh` / `.bdf` artifacts
 - `results/<run_id>/solver`: solver-native outputs such as `.f5`
 - `results/<run_id>/reports`: normalized summaries, including `run_summary.json`
+
+The multi-case shell sizing example also writes
+`results/<run_id>/reports/stress_aggregation_summary.json`, which compares the
+configured KS or p-norm surrogate against the reported raw per-case maximum
+element stresses.
 
 ## Discipline and plugin separation
 

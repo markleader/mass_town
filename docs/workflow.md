@@ -49,7 +49,14 @@ The FEA agent now works through a discipline-level backend contract.
    SPC cards.
 6. Run analysis and persist normalized summaries under `results/<run_id>/reports`
    plus solver-native outputs under `results/<run_id>/solver`.
-7. Raise structured diagnostics if the selected backend is unavailable, the
+7. When `constraints.aggregated_stress` is configured in the design state, use
+   the per-load-case stress results to evaluate a KS or p-norm aggregate for
+   overall pass/fail while preserving worst-case load-case reporting in
+   `analysis_state.max_stress` and `worst_case_name`.
+8. For TACS runs with aggregated stress enabled, write
+   `reports/stress_aggregation_summary.json` to compare the aggregate surrogate
+   against the raw per-case maximum element stresses.
+9. Raise structured diagnostics if the selected backend is unavailable, the
    configured model input is missing, or the backend fails.
 
 With `tool: auto`, the workflow prefers `tacs` when it is available.

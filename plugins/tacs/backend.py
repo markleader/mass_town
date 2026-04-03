@@ -5,6 +5,7 @@ import re
 import time
 from typing import Any
 
+from mass_town.constraints import aggregate_case_stresses
 from mass_town.disciplines.fea import FEABackend, FEALoadCaseResult, FEARequest, FEAResult
 from mass_town.storage.filesystem import ensure_directory
 
@@ -92,6 +93,8 @@ class TacsFEABackend(FEABackend):
                 "mass": case_analysis["mass"],
                 "failure_index": case_analysis["failure_index"],
                 "max_stress": case_analysis["max_stress"],
+                "raw_max_stress": case_analysis.get("raw_max_stress"),
+                "raw_max_stress_source": case_analysis.get("raw_max_stress_source"),
                 "displacement_norm": case_analysis["displacement_norm"],
                 "functions": case_analysis["function_values"],
                 "boundary_conditions": case_analysis.get("boundary_conditions"),
@@ -111,6 +114,15 @@ class TacsFEABackend(FEABackend):
                 case_metadata["selected_case_name"] = case_analysis["selected_case_name"]
             if case_analysis["failure_index"] is not None:
                 case_metadata["failure_index"] = round(float(case_analysis["failure_index"]), 6)
+            if case_analysis.get("raw_max_stress") is not None:
+                case_metadata["raw_max_stress"] = round(
+                    float(case_analysis["raw_max_stress"]),
+                    6,
+                )
+            if case_analysis.get("raw_max_stress_source") is not None:
+                case_metadata["raw_max_stress_source"] = str(
+                    case_analysis["raw_max_stress_source"]
+                )
             if backend_version is not None:
                 case_metadata["backend_version"] = backend_version
             if request.mesh_input_path is not None:
@@ -133,12 +145,23 @@ class TacsFEABackend(FEABackend):
                 "mass": case_analysis["mass"],
                 "failure_index": case_analysis["failure_index"],
                 "max_stress": case_analysis["max_stress"],
+                "raw_max_stress": case_analysis.get("raw_max_stress"),
+                "raw_max_stress_source": case_analysis.get("raw_max_stress_source"),
                 "displacement_norm": case_analysis["displacement_norm"],
                 "analysis_seconds": case_analysis["analysis_seconds"],
                 "summary_path": str(case_summary_path),
             }
             if "selected_case_name" in case_analysis:
                 summary_case_data[case_name]["selected_case_name"] = case_analysis["selected_case_name"]
+
+        aggregation_quality_summary_path = self._write_aggregation_quality_summary(
+            request=request,
+            report_directory=report_directory,
+            case_analyses=analysis["load_cases"],
+        )
+        result_files = [summary_path, *case_result_files]
+        if aggregation_quality_summary_path is not None:
+            result_files.append(aggregation_quality_summary_path)
 
         summary = {
             "backend": self.name,
@@ -154,6 +177,11 @@ class TacsFEABackend(FEABackend):
             "functions": analysis["function_values"],
             "boundary_conditions": analysis.get("boundary_conditions"),
             "worst_case_name": analysis["case_name"],
+            "aggregation_quality_summary_path": (
+                str(aggregation_quality_summary_path)
+                if aggregation_quality_summary_path is not None
+                else None
+            ),
             "analysis_seconds": analysis["analysis_seconds"],
         }
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
@@ -179,6 +207,10 @@ class TacsFEABackend(FEABackend):
             metadata["mesh_input_path"] = str(request.mesh_input_path)
         if analysis["analysis_seconds"] is not None:
             metadata["analysis_seconds"] = round(float(analysis["analysis_seconds"]), 6)
+        if aggregation_quality_summary_path is not None:
+            metadata["aggregation_quality_summary_path"] = str(
+                aggregation_quality_summary_path
+            )
 
         passed = analysis["failure_index"] is None or analysis["failure_index"] <= 1.0
 
@@ -188,11 +220,12 @@ class TacsFEABackend(FEABackend):
             mass=analysis["mass"],
             max_stress=analysis["max_stress"],
             displacement_norm=analysis["displacement_norm"],
-            result_files=[summary_path, *case_result_files],
+            result_files=result_files,
             metadata=metadata,
             log_path=log_path,
             load_cases=case_results,
             worst_case_name=analysis["case_name"],
+            aggregation_quality_summary_path=aggregation_quality_summary_path,
             analysis_seconds=analysis["analysis_seconds"],
         )
 
@@ -287,6 +320,10 @@ class TacsFEABackend(FEABackend):
             max_stress = (
                 float(failure_index) * request.allowable_stress if failure_index is not None else None
             )
+            raw_max_stress, raw_max_stress_source = self._extract_raw_max_stress(
+                problem,
+                fallback_stress=max_stress,
+            )
             case_analyses[case_name] = {
                 "case_name": case_name,
                 "load_source": "script",
@@ -294,6 +331,8 @@ class TacsFEABackend(FEABackend):
                 "mass": self._extract_mass(function_values),
                 "failure_index": failure_index,
                 "max_stress": max_stress,
+                "raw_max_stress": raw_max_stress,
+                "raw_max_stress_source": raw_max_stress_source,
                 "displacement_norm": self._extract_displacement_norm(problem),
                 "boundary_conditions": {
                     "constrained_node_count": len(constrained_nodes),
@@ -363,6 +402,10 @@ class TacsFEABackend(FEABackend):
             max_stress = (
                 float(failure_index) * request.allowable_stress if failure_index is not None else None
             )
+            raw_max_stress, raw_max_stress_source = self._extract_raw_max_stress(
+                problem,
+                fallback_stress=max_stress,
+            )
             case_analyses[case_name] = {
                 "case_name": case_name,
                 "selected_case_name": selected_name,
@@ -371,6 +414,8 @@ class TacsFEABackend(FEABackend):
                 "mass": self._extract_mass(function_values),
                 "failure_index": failure_index,
                 "max_stress": max_stress,
+                "raw_max_stress": raw_max_stress,
+                "raw_max_stress_source": raw_max_stress_source,
                 "displacement_norm": self._extract_displacement_norm(problem),
                 "analysis_seconds": time.perf_counter() - started_at,
             }
@@ -717,6 +762,167 @@ class TacsFEABackend(FEABackend):
         only_case_name = next(iter(request.load_cases))
         only_case_loads = request.load_cases[only_case_name].loads
         return not (only_case_name == request.case_name and dict(only_case_loads) == dict(request.loads))
+
+    def _write_aggregation_quality_summary(
+        self,
+        *,
+        request: FEARequest,
+        report_directory: Path,
+        case_analyses: dict[str, dict[str, Any]],
+    ) -> Path | None:
+        if request.constraints.aggregated_stress is None:
+            return None
+
+        surrogate_result = aggregate_case_stresses(
+            {
+                case_name: case_analysis.get("max_stress")
+                for case_name, case_analysis in case_analyses.items()
+            },
+            request.constraints,
+            request.allowable_stress,
+        )
+        raw_case_stresses = {
+            case_name: case_analysis.get("raw_max_stress")
+            for case_name, case_analysis in case_analyses.items()
+        }
+        raw_global_max_stress = self._max_defined_value(raw_case_stresses)
+        surrogate_controlling_case = (
+            surrogate_result.controlling_case if surrogate_result is not None else None
+        )
+        raw_controlling_case = (
+            max(
+                (
+                    case_name
+                    for case_name, raw_max_stress in raw_case_stresses.items()
+                    if raw_max_stress is not None
+                ),
+                key=lambda case_name: float(raw_case_stresses[case_name]),
+            )
+            if raw_global_max_stress is not None
+            else None
+        )
+        absolute_gap = (
+            abs(float(surrogate_result.value) - raw_global_max_stress)
+            if surrogate_result is not None
+            and surrogate_result.value is not None
+            and raw_global_max_stress is not None
+            else None
+        )
+        relative_gap = (
+            absolute_gap / raw_global_max_stress
+            if absolute_gap is not None and raw_global_max_stress not in (None, 0.0)
+            else None
+        )
+
+        summary_path = report_directory / "stress_aggregation_summary.json"
+        summary = {
+            "method": (
+                surrogate_result.method if surrogate_result is not None else None
+            ),
+            "source": (
+                surrogate_result.source if surrogate_result is not None else None
+            ),
+            "allowable": (
+                surrogate_result.allowable if surrogate_result is not None else None
+            ),
+            "aggregated_stress_value": (
+                surrogate_result.value if surrogate_result is not None else None
+            ),
+            "raw_global_max_stress": raw_global_max_stress,
+            "absolute_gap_to_raw_max": absolute_gap,
+            "relative_gap_to_raw_max": relative_gap,
+            "controlling_case_by_surrogate": surrogate_controlling_case,
+            "controlling_case_by_raw_max": raw_controlling_case,
+            "load_cases": {
+                case_name: {
+                    "aggregated_input_stress": case_analysis.get("max_stress"),
+                    "raw_max_stress": case_analysis.get("raw_max_stress"),
+                    "raw_max_stress_source": case_analysis.get("raw_max_stress_source"),
+                }
+                for case_name, case_analysis in case_analyses.items()
+            },
+        }
+        summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+        return summary_path
+
+    def _extract_raw_max_stress(
+        self,
+        problem: Any,
+        *,
+        fallback_stress: float | None = None,
+    ) -> tuple[float | None, str | None]:
+        candidate_targets = (
+            ("problem", problem),
+            ("assembler", getattr(problem, "assembler", None)),
+        )
+        scalar_methods = (
+            "getRawMaxStress",
+            "getMaximumVonMisesStress",
+            "getMaxVonMisesStress",
+            "getMaxStress",
+        )
+        array_methods = (
+            "getElementVonMisesStresses",
+            "getElementStresses",
+        )
+        array_attributes = (
+            "element_stresses",
+            "von_mises_stresses",
+            "raw_element_stresses",
+        )
+
+        for owner, target in candidate_targets:
+            if target is None:
+                continue
+            for method_name in scalar_methods:
+                method = getattr(target, method_name, None)
+                if callable(method):
+                    max_stress = self._coerce_max_stress_value(method())
+                    if max_stress is not None:
+                        return max_stress, f"{owner}.{method_name}"
+            for method_name in array_methods:
+                method = getattr(target, method_name, None)
+                if callable(method):
+                    max_stress = self._coerce_max_stress_value(method())
+                    if max_stress is not None:
+                        return max_stress, f"{owner}.{method_name}"
+            for attribute_name in array_attributes:
+                if hasattr(target, attribute_name):
+                    max_stress = self._coerce_max_stress_value(getattr(target, attribute_name))
+                    if max_stress is not None:
+                        return max_stress, f"{owner}.{attribute_name}"
+
+        if fallback_stress is None:
+            return None, None
+        return float(fallback_stress), "ks_failure_surrogate"
+
+    def _coerce_max_stress_value(self, value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, dict):
+            coerced = [
+                self._coerce_max_stress_value(item)
+                for item in value.values()
+            ]
+        elif hasattr(value, "tolist"):
+            return self._coerce_max_stress_value(value.tolist())
+        elif isinstance(value, (list, tuple, set)):
+            coerced = [self._coerce_max_stress_value(item) for item in value]
+        else:
+            return None
+
+        defined = [item for item in coerced if item is not None]
+        if not defined:
+            return None
+        return max(defined)
+
+    def _max_defined_value(self, values: dict[str, float | None]) -> float | None:
+        defined = [float(value) for value in values.values() if value is not None]
+        if not defined:
+            return None
+        return max(defined)
 
     def _select_worst_case_name(
         self,

@@ -27,15 +27,19 @@ and runs TACS directly from:
   vector:
   - `center_bending` applies `force_z`
   - `center_shear` applies `force_x`
-- Overall feasibility and `analysis_state.max_stress` use the reported
-  worst-case load case. Per-case metrics are written into
+- Overall feasibility is driven by the configured aggregated stress constraint,
+  while `analysis_state.max_stress` and `worst_case_name` still report the
+  worst-case load case for backward compatibility.
+- Per-case metrics and the aggregated result are written into
   `reports/run_summary.json`.
+- A validation summary comparing the aggregated surrogate against the raw
+  per-case maximum element stresses is written to
+  `reports/stress_aggregation_summary.json`.
 
-## Future Aggregation
+## Aggregated Constraint
 
-Constraint aggregation is intentionally deferred to TODO item 1.4. The intended
-future problem-definition shape is documented here so the multi-case example can
-evolve without changing its structure:
+The multi-case example now enables load-case stress aggregation directly in the
+design state:
 
 ```yaml
 constraints:
@@ -44,10 +48,8 @@ constraints:
     method: ks
     source: load_cases
     allowable: 3000000000.0
+    ks_weight: 50.0
 ```
-
-The current implementation does not execute this stanza yet. Worst-case
-reporting is the active behavior for this example.
 
 ## Run
 

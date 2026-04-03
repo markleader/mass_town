@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from mass_town.constraints import AggregatedStressResult, ConstraintSet
+
 from .artifacts import ArtifactRecord
 from .result import Diagnostic
 
@@ -43,6 +45,7 @@ class AnalysisState(BaseModel):
     passed: bool = False
     load_cases: dict[str, LoadCaseAnalysisState] = Field(default_factory=dict)
     worst_case_name: str | None = None
+    aggregated_stress: AggregatedStressResult | None = None
     analysis_seconds: float | None = None
 
 
@@ -67,7 +70,7 @@ class DesignState(BaseModel):
     design_variables: dict[str, float] = Field(default_factory=dict)
     loads: dict[str, float] = Field(default_factory=dict)
     load_cases: dict[str, LoadCaseState] = Field(default_factory=dict)
-    constraints: dict[str, float] = Field(default_factory=dict)
+    constraints: ConstraintSet = Field(default_factory=ConstraintSet)
     geometry_state: GeometryState = Field(default_factory=GeometryState)
     mesh_state: MeshState = Field(default_factory=MeshState)
     analysis_state: AnalysisState = Field(default_factory=AnalysisState)

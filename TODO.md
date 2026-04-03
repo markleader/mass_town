@@ -92,10 +92,10 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 1.4 Constraint aggregation
 
-* [ ] Implement KS aggregation or p-norm aggregation for stress constraints.
-* [ ] Make the aggregation method configurable.
-* [ ] Validate aggregation behavior against raw element stresses.
-* [ ] Add plots or summaries showing constraint aggregation quality.
+* [x] Implement KS aggregation or p-norm aggregation for stress constraints.
+* [x] Make the aggregation method configurable.
+* [x] Validate aggregation behavior against raw element stresses.
+* [x] Add plots or summaries showing constraint aggregation quality.
 
 ### Deliverables
 

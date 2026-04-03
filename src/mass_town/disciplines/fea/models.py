@@ -2,6 +2,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from mass_town.constraints import ConstraintSet
 from mass_town.design_variables import DesignVariableAssignments
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 
@@ -33,7 +34,7 @@ class FEARequest(BaseModel):
     design_variable_assignments: DesignVariableAssignments = Field(
         default_factory=DesignVariableAssignments
     )
-    constraints: dict[str, float] = Field(default_factory=dict)
+    constraints: ConstraintSet = Field(default_factory=ConstraintSet)
     allowable_stress: float
     case_name: str = "static"
     load_cases: dict[str, FEALoadCase] = Field(default_factory=dict)
@@ -52,4 +53,5 @@ class FEAResult(BaseModel):
     log_path: Path | None = None
     load_cases: dict[str, FEALoadCaseResult] = Field(default_factory=dict)
     worst_case_name: str | None = None
+    aggregation_quality_summary_path: Path | None = None
     analysis_seconds: float | None = None

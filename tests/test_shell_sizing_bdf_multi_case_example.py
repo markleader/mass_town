@@ -52,7 +52,7 @@ def _run_with_uniform_pid_thickness(tmp_path: Path, thickness: float):
     return final_state, project_dir
 
 
-def test_shell_sizing_bdf_multi_case_example_runs_and_reports_worst_case(tmp_path: Path) -> None:
+def test_shell_sizing_bdf_multi_case_example_runs_and_reports_aggregation(tmp_path: Path) -> None:
     thin_state, thin_project = _run_with_uniform_pid_thickness(tmp_path, 0.003)
     thick_state, thick_project = _run_with_uniform_pid_thickness(tmp_path, 0.009)
 
@@ -71,6 +71,14 @@ def test_shell_sizing_bdf_multi_case_example_runs_and_reports_worst_case(tmp_pat
     assert set(thick_state.analysis_state.load_cases) == {"center_bending", "center_shear"}
     assert thin_state.analysis_state.worst_case_name in thin_state.analysis_state.load_cases
     assert thick_state.analysis_state.worst_case_name in thick_state.analysis_state.load_cases
+    assert thin_state.analysis_state.aggregated_stress is not None
+    assert thick_state.analysis_state.aggregated_stress is not None
+    assert thin_state.analysis_state.aggregated_stress.value is not None
+    assert thick_state.analysis_state.aggregated_stress.value is not None
+    assert (
+        thick_state.analysis_state.aggregated_stress.value
+        < thin_state.analysis_state.aggregated_stress.value
+    )
 
     thin_summary = (
         thin_project
@@ -89,9 +97,21 @@ def test_shell_sizing_bdf_multi_case_example_runs_and_reports_worst_case(tmp_pat
 
     assert thin_summary.exists()
     assert thick_summary.exists()
+    thin_quality_summary = (
+        thin_project
+        / thin_state.analysis_state.aggregated_stress.quality_summary_path
+    )
+    thick_quality_summary = (
+        thick_project
+        / thick_state.analysis_state.aggregated_stress.quality_summary_path
+    )
+    assert thin_quality_summary.exists()
+    assert thick_quality_summary.exists()
 
     thin_summary_data = json.loads(thin_summary.read_text())
     thick_summary_data = json.loads(thick_summary.read_text())
+    thin_quality_summary_data = json.loads(thin_quality_summary.read_text())
+    thick_quality_summary_data = json.loads(thick_quality_summary.read_text())
 
     assert thin_summary_data["worst_case_name"] in thin_summary_data["load_case_results"]
     assert thick_summary_data["worst_case_name"] in thick_summary_data["load_case_results"]
@@ -103,3 +123,13 @@ def test_shell_sizing_bdf_multi_case_example_runs_and_reports_worst_case(tmp_pat
     )
     assert set(thin_summary_data["load_case_results"]) == {"center_bending", "center_shear"}
     assert set(thick_summary_data["load_case_results"]) == {"center_bending", "center_shear"}
+    assert thin_summary_data["aggregated_stress"]["method"] == "ks"
+    assert thick_summary_data["aggregated_stress"]["method"] == "ks"
+    assert thin_summary_data["aggregated_stress"]["quality_summary_path"] == (
+        thin_state.analysis_state.aggregated_stress.quality_summary_path
+    )
+    assert thick_summary_data["aggregated_stress"]["quality_summary_path"] == (
+        thick_state.analysis_state.aggregated_stress.quality_summary_path
+    )
+    assert thin_quality_summary_data["raw_global_max_stress"] is not None
+    assert thick_quality_summary_data["raw_global_max_stress"] is not None
