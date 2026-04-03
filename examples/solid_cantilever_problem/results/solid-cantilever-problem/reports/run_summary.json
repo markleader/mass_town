@@ -1,0 +1,42 @@
+{
+  "active_design_variables": {
+    "thickness": 10.4
+  },
+  "aggregated_stress": null,
+  "allowable_stress": 180.0,
+  "analysis_seconds": 0.009100542010855861,
+  "artifact_paths": {
+    "aggregation_quality_summary": null,
+    "analysis_log": "results/solid-cantilever-problem/logs/cantilever.tacs.log",
+    "analysis_summary": "results/solid-cantilever-problem/reports/cantilever.tacs.summary.json",
+    "mesh_log": "results/solid-cantilever-problem/logs/cantilever.gmsh.log",
+    "mesh_model": "results/solid-cantilever-problem/mesh/cantilever.bdf",
+    "solver_directory": "results/solid-cantilever-problem/solver",
+    "workflow_log": "results/solid-cantilever-problem/logs/workflow.log"
+  },
+  "design_variables": {
+    "length": 50.0,
+    "thickness": 10.4,
+    "width": 10.0
+  },
+  "feasible": false,
+  "final_thickness": 10.4,
+  "iteration_count": 4,
+  "load_case_results": {
+    "cantilever_solid": {
+      "analysis_seconds": 0.009100542010855861,
+      "backend": "tacs",
+      "displacement_norm": null,
+      "mass": 0.0,
+      "max_stress": NaN,
+      "passed": false,
+      "result_path": "results/solid-cantilever-problem/reports/cantilever.cantilever_solid.tacs.summary.json"
+    }
+  },
+  "mass": 0.0,
+  "max_stress": NaN,
+  "problem_name": "solid_cantilever_problem",
+  "run_id": "solid-cantilever-problem",
+  "status": "failed",
+  "worst_case_name": "cantilever_solid"
+}

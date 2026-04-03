@@ -76,6 +76,8 @@ your checkout is elsewhere.
 - `examples/simple_structural_problem/`: runnable example input
 - `examples/shell_sizing_bdf_problem/`: BDF-first shell sizing example
 - `examples/shell_sizing_bdf_multi_case_problem/`: BDF-first shell sizing example with multiple static load cases and configurable aggregated stress constraints
+- `examples/solid_cantilever_problem/`: STEP-driven 3D solid cantilever benchmark
+- `examples/shell_cantilever_problem/`: shell companion benchmark using the same cantilever STEP geometry
 - `tests/`: unit tests for the core orchestration and CLI
 
 Example projects now follow a canonical Phase 0 layout:
@@ -121,6 +123,7 @@ meshing:
   gmsh_executable: gmsh
   mesh_dimension: 3
   step_face_selector: null
+  volume_element_preference: hex_preferred
   output_format: msh
   target_quality: 0.75
 ```
@@ -128,7 +131,7 @@ meshing:
 Backend selection rules:
 
 - `auto` tries `gmsh` first and falls back to `mock`
-- `gmsh` supports executable-driven meshing and Python-API planar-face meshing
+- `gmsh` supports executable-driven meshing, Python-API planar-face meshing, and Python-API hex-preferred solid meshing for simple box-like STEP solids
 - `gmsh` can emit either `.msh` or `.bdf` via `meshing.output_format`
 - `mock` is always available for tests
 
@@ -144,7 +147,7 @@ meshing:
   geometry_input_path: geometry/model.step
   gmsh_executable: gmsh
   mesh_dimension: 2
-  step_face_selector: largest_planar
+  step_face_selector: max_y
   output_format: bdf
   target_quality: 0.75
 ```
@@ -165,20 +168,30 @@ intended for downstream TACS / pyTACS import. The exporter includes:
 - `GRID` nodes
 - `CTRIA3`, `CQUAD4`, `CTETRA`, and `CHEXA` elements
 - deterministic `PID` assignment from gmsh physical groups
-- placeholder `PSHELL` / `PSOLID` cards plus a default `MAT1`
+- placeholder `PSHELL` / `PSOLID` cards plus a default isotropic `MAT1`
 - `$ REGION ...` metadata comments that preserve gmsh physical names
 
 Elements without a physical group are exported into an `UNASSIGNED` region.
 Current limitations:
 
 - only gmsh element types `2`, `3`, `4`, and `5` are supported for BDF export
-- shell loads and boundary conditions must still be configured downstream in
-  solver setup
+- selector-driven shell and solid loads/boundary conditions must still be configured downstream in solver setup
 - physical-group metadata is only preserved when it exists in the gmsh mesh
+- for 3D meshes, point and edge entities are ignored during BDF export and lower-dimensional boundary faces are dropped when volume elements are present
+
+Additional gmsh selector rules:
+
+- `step_face_selector` now supports `largest_planar`, `min_x`, `max_x`, `min_y`, `max_y`, `min_z`, and `max_z`
+- `volume_element_preference: hex_preferred` tries a transfinite/recombine hex-only volume mesh for single-volume box-like solids and falls back to tetrahedra with explicit metadata/logging when that is not possible
 
 The checked-in structural example now uses this path directly, extracting the
 largest planar face from
 `examples/simple_structural_problem/inputs/geometry/crank.stp`.
+
+The new cantilever benchmarks use the same gmsh plugin in two ways:
+
+- `pixi run -e fea run-solid-cantilever-example`
+- `pixi run -e fea run-shell-cantilever-example`
 
 ## FEA backends
 
@@ -191,6 +204,7 @@ fea:
   case_name: static
   write_solution: true
   shell_setup: null
+  solid_setup: null
 ```
 
 Backend selection rules:
@@ -202,6 +216,8 @@ Backend selection rules:
   agent will use that generated mesh artifact automatically
 - for shell meshes, the backend creates TACS shell elements in code and applies
   boundary conditions and nodal loads from `fea.shell_setup`
+- for solid meshes, the backend creates TACS solid elements in code and applies
+  boundary conditions and nodal loads from `fea.solid_setup`
 
 Shell selector setup for generated shell models lives with the example or
 problem definition, not inside `plugins/tacs`. A minimal example:
@@ -226,6 +242,42 @@ fea:
         dof: "123456"
     loads:
       - node_set: loaded_edge
+        load_key: force
+        direction: [0.0, -1.0, 0.0]
+        distribution: equal
+```
+
+Generated shell models also support a coordinate-based selector:
+
+```yaml
+shell_setup:
+  node_sets:
+    fixed_edge:
+      selector: bounding_box_extreme
+      axis: x
+      extreme: min
+```
+
+Solid selector setup mirrors the same pattern for face-node selection:
+
+```yaml
+fea:
+  tool: tacs
+  solid_setup:
+    node_sets:
+      fixed_face:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: min
+      loaded_face:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: max
+    boundary_conditions:
+      - node_set: fixed_face
+        dof: "123456"
+    loads:
+      - node_set: loaded_face
         load_key: force
         direction: [0.0, -1.0, 0.0]
         distribution: equal

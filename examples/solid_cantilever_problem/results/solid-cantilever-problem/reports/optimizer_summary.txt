@@ -1,0 +1,3 @@
+name: optimizer-summary
+kind: optimizer_report
+metadata: {'design_variables': 'thickness', 'design_variable_snapshot': '{"thickness": 10.4}'}

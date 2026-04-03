@@ -86,6 +86,7 @@ class FEAAgent(BaseAgent):
             load_cases=load_cases,
             write_solution=config.fea.write_solution,
             shell_setup=config.fea.shell_setup,
+            solid_setup=config.fea.solid_setup,
         )
 
         try:

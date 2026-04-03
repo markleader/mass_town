@@ -156,6 +156,7 @@ class WorkflowEngine:
             "active_design_variables": active_design_variables,
             "mass": state.analysis_state.mass,
             "max_stress": state.analysis_state.max_stress,
+            "displacement_norm": state.analysis_state.displacement_norm,
             "worst_case_name": state.analysis_state.worst_case_name,
             "aggregated_stress": (
                 state.analysis_state.aggregated_stress.model_dump(mode="json")

@@ -1,0 +1,45 @@
+max_iterations: 4
+allowable_stress: 180.0
+meshing:
+  tool: gmsh
+  geometry_input_path: ../solid_cantilever_problem/inputs/geometry/cantilever.stp
+  mesh_dimension: 2
+  step_face_selector: max_y
+  output_format: bdf
+  target_quality: 0.75
+fea:
+  tool: tacs
+  case_name: cantilever_shell
+  write_solution: true
+  shell_setup:
+    node_sets:
+      fixed_edge:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: min
+      loaded_edge:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: max
+    boundary_conditions:
+      - node_set: fixed_edge
+        dof: "123456"
+    loads:
+      - node_set: loaded_edge
+        load_key: force
+        direction: [0.0, -1.0, 0.0]
+        distribution: equal
+design_variables:
+  - id: thickness
+    name: Shell Thickness
+    type: scalar_thickness
+    initial_value: 10.0
+    bounds:
+      lower: 10.0
+      upper: 10.0
+    units: mm
+    active: true
+initial_tasks:
+  - geometry
+  - mesh
+  - fea

@@ -172,7 +172,7 @@ class FakeAssembler:
         self.problems: dict[str, FakeProblem] = {}
         self.initialized = False
 
-    def initialize(self, callback: object) -> None:
+    def initialize(self, callback: object | None = None) -> None:
         self.initialized = True
         self.callback = callback
 
@@ -293,6 +293,43 @@ def _shell_request(
     )
 
 
+def _solid_node_positions_and_elements() -> tuple[
+    dict[int, tuple[float, float, float]],
+    list[tuple[str, tuple[int, ...]]],
+]:
+    node_positions = {
+        1: (0.0, 0.0, 0.0),
+        2: (1.0, 0.0, 0.0),
+        3: (1.0, 1.0, 0.0),
+        4: (0.0, 1.0, 0.0),
+        5: (0.0, 0.0, 1.0),
+        6: (1.0, 0.0, 1.0),
+        7: (1.0, 1.0, 1.0),
+        8: (0.0, 1.0, 1.0),
+    }
+    return node_positions, [("CHEXA", (1, 2, 3, 4, 5, 6, 7, 8))]
+
+
+def _solid_request(
+    tmp_path: Path,
+    *,
+    solid_setup: dict[str, object] | None = None,
+    loads: dict[str, float] | None = None,
+) -> FEARequest:
+    model_path = tmp_path / "solid_model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    return FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path,
+        log_directory=tmp_path,
+        solution_directory=tmp_path,
+        run_id="solid-run",
+        loads=loads or {"force": 120.0},
+        allowable_stress=180.0,
+        solid_setup=solid_setup,
+    )
+
+
 def _base_state() -> DesignState:
     return DesignState(
         run_id="fea-run",
@@ -346,6 +383,38 @@ def test_config_parses_shell_setup_settings() -> None:
     assert config.fea.shell_setup is not None
     assert config.fea.shell_setup.node_sets["left_bore"].selector == "boundary_loop"
     assert config.fea.shell_setup.loads[0].direction == (0.0, -1.0, 0.0)
+
+
+def test_config_parses_solid_setup_settings() -> None:
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "solid_setup": {
+                    "node_sets": {
+                        "fixed_face": {
+                            "selector": "bounding_box_extreme",
+                            "axis": "x",
+                            "extreme": "min",
+                        }
+                    },
+                    "boundary_conditions": [{"node_set": "fixed_face", "dof": "123456"}],
+                    "loads": [
+                        {
+                            "node_set": "fixed_face",
+                            "load_key": "force",
+                            "direction": [0.0, -1.0, 0.0],
+                            "distribution": "equal",
+                        }
+                    ],
+                },
+            }
+        }
+    )
+
+    assert config.fea.solid_setup is not None
+    assert config.fea.solid_setup.node_sets["fixed_face"].axis == "x"
+    assert config.fea.solid_setup.node_sets["fixed_face"].extreme == "min"
 
 
 def test_config_parses_design_variable_settings() -> None:
@@ -612,6 +681,39 @@ def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
     )
 
 
+def test_fea_agent_forwards_solid_setup(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    backend = StubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "solid_setup": {
+                    "node_sets": {
+                        "fixed_face": {
+                            "selector": "bounding_box_extreme",
+                            "axis": "x",
+                            "extreme": "min",
+                        }
+                    },
+                    "boundary_conditions": [{"node_set": "fixed_face", "dof": "123456"}],
+                },
+            }
+        }
+    )
+
+    result = FEAAgent().run(_base_state(), config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert backend.last_request.solid_setup is not None
+    assert backend.last_request.solid_setup.node_sets["fixed_face"].axis == "x"
+
+
 def test_fea_agent_uses_generated_bdf_when_model_path_is_omitted(monkeypatch, tmp_path: Path) -> None:
     mesh_bdf = tmp_path / "results" / "fea-run" / "mesh" / "mesh.bdf"
     mesh_bdf.parent.mkdir(parents=True)
@@ -787,6 +889,62 @@ def test_tacs_backend_resolves_shell_node_sets(tmp_path: Path) -> None:
     assert resolved["center_node"][0] in node_positions
 
 
+def test_tacs_backend_resolves_shell_bounding_box_node_sets(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    request = _shell_request(
+        tmp_path,
+        shell_setup={
+            "node_sets": {
+                "left_edge": {
+                    "selector": "bounding_box_extreme",
+                    "axis": "x",
+                    "extreme": "min",
+                    "tolerance": 1e-6,
+                }
+            }
+        },
+    )
+
+    resolved = backend._resolve_shell_node_sets(
+        request=request,
+        node_positions=node_positions,
+        shell_elements=elements,
+    )
+
+    assert set(resolved["left_edge"]) == {1, 8, 15, 22, 29}
+
+
+def test_tacs_backend_resolves_solid_node_sets(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, _ = _solid_node_positions_and_elements()
+    request = _solid_request(
+        tmp_path,
+        solid_setup={
+            "node_sets": {
+                "fixed_face": {
+                    "selector": "bounding_box_extreme",
+                    "axis": "x",
+                    "extreme": "min",
+                },
+                "loaded_face": {
+                    "selector": "bounding_box_extreme",
+                    "axis": "x",
+                    "extreme": "max",
+                },
+            }
+        },
+    )
+
+    resolved = backend._resolve_solid_node_sets(
+        request=request,
+        node_positions=node_positions,
+    )
+
+    assert set(resolved["fixed_face"]) == {1, 4, 5, 8}
+    assert set(resolved["loaded_face"]) == {2, 3, 6, 7}
+
+
 def test_tacs_backend_applies_explicit_shell_setup_boundary_conditions_and_loads(tmp_path: Path) -> None:
     backend = TacsFEABackend()
     node_positions, elements = _shell_node_positions_and_elements()
@@ -841,6 +999,60 @@ def test_tacs_backend_applies_explicit_shell_setup_boundary_conditions_and_loads
     assert nastran_ordering is True
     assert set(node_ids) == {12, 13, 20, 19}
     assert sum(load[1] for load in load_vectors) == -120.0
+
+
+def test_tacs_backend_applies_explicit_solid_setup_boundary_conditions_and_loads(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _solid_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements)
+    assembler = FakeAssembler(bdf_info)
+    request = _solid_request(
+        tmp_path,
+        solid_setup={
+            "node_sets": {
+                "fixed_face": {
+                    "selector": "bounding_box_extreme",
+                    "axis": "x",
+                    "extreme": "min",
+                },
+                "loaded_face": {
+                    "selector": "bounding_box_extreme",
+                    "axis": "x",
+                    "extreme": "max",
+                },
+            },
+            "boundary_conditions": [{"node_set": "fixed_face", "dof": "123456"}],
+            "loads": [
+                {
+                    "node_set": "loaded_face",
+                    "load_key": "force",
+                    "direction": [0.0, -1.0, 0.0],
+                    "distribution": "equal",
+                }
+            ],
+        },
+    )
+
+    result = backend._run_solid_analysis(
+        request=request,
+        bdf_info=bdf_info,
+        pyTACS=lambda input_bdf: assembler,
+        functions=SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        constitutive=SimpleNamespace(),
+        elements=SimpleNamespace(),
+        output_directory=tmp_path,
+    )
+
+    assert result["boundary_conditions"]["bc_mode"] == "configured_solid_setup"
+    assert result["boundary_conditions"]["load_mode"] == "configured_solid_setup"
+    assert len(bdf_info.added_spcs) == 1
+    assert set(bdf_info.added_spcs[0][2]) == {1, 4, 5, 8}
+    assert len(assembler.problem.added_loads) == 1
+    node_ids, load_vectors, nastran_ordering = assembler.problem.added_loads[0]
+    assert nastran_ordering is True
+    assert set(node_ids) == {2, 3, 6, 7}
+    assert sum(load[1] for load in load_vectors) == -120.0
+    assert all(len(load) == 3 for load in load_vectors)
 
 
 def test_tacs_backend_run_analysis_writes_multi_case_shell_summaries(tmp_path: Path) -> None:

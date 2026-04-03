@@ -1,0 +1,27 @@
+run_id: shell-cantilever-problem
+problem_name: shell_cantilever_problem
+status: pending
+iteration: 0
+design_variables:
+  thickness: 10.0
+  length: 50.0
+  width: 10.0
+loads:
+  force: 10.0
+constraints:
+  max_stress: 180.0
+geometry_state:
+  valid: true
+  notes: shell cantilever comparison benchmark
+mesh_state:
+  quality: 0.0
+  elements: 0
+analysis_state:
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  passed: false
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

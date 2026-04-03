@@ -9,6 +9,7 @@ from mass_town.design_variables import (
     ensure_unique_design_variable_definitions,
 )
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
+from mass_town.disciplines.fea.solid_setup import FEASolidSetup
 
 
 class MeshingConfig(BaseModel):
@@ -16,7 +17,10 @@ class MeshingConfig(BaseModel):
     geometry_input_path: str | None = None
     gmsh_executable: str = "gmsh"
     mesh_dimension: Literal[2, 3] = 3
-    step_face_selector: Literal["largest_planar"] | None = None
+    step_face_selector: (
+        Literal["largest_planar", "min_x", "max_x", "min_y", "max_y", "min_z", "max_z"] | None
+    ) = None
+    volume_element_preference: Literal["hex_preferred", "tet_only"] = "hex_preferred"
     output_format: Literal["msh", "bdf"] = "msh"
     target_quality: float = 0.75
 
@@ -27,6 +31,7 @@ class FEAConfig(BaseModel):
     case_name: str = "static"
     write_solution: bool = True
     shell_setup: FEAShellSetup | None = None
+    solid_setup: FEASolidSetup | None = None
 
 
 class WorkflowConfig(BaseModel):

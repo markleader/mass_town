@@ -1,0 +1,3 @@
+name: mesh-output
+kind: mesh_file
+metadata: {'command': 'python:gmsh', 'mesh_generation_mode': 'python_api_hex_volume', 'meshing_dimension': 3, 'volume_element_preference': 'hex_preferred', 'volume_meshing_strategy': 'transfinite_recombine', 'volume_count': 1, 'mesh_format': 'bdf', 'intermediate_msh_path': 'examples/solid_cantilever_problem/results/solid-cantilever-problem/mesh/cantilever.msh', 'source_format': 'msh2', 'node_count': 99, 'element_count': 40, 'region_count': 1, 'shell_element_count': 0, 'solid_element_count': 40, 'target_dimension': 3, 'ignored_lower_dimensional_element_count': 0, 'quality': 0.9, 'elements': 40, 'backend': 'gmsh', 'log_path': 'results/solid-cantilever-problem/logs/cantilever.gmsh.log'}

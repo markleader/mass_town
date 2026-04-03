@@ -1,0 +1,35 @@
+max_iterations: 4
+allowable_stress: 180.0
+meshing:
+  tool: gmsh
+  geometry_input_path: inputs/geometry/cantilever.stp
+  mesh_dimension: 3
+  volume_element_preference: hex_preferred
+  output_format: bdf
+  target_quality: 0.75
+fea:
+  tool: tacs
+  case_name: cantilever_solid
+  write_solution: true
+  solid_setup:
+    node_sets:
+      fixed_face:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: min
+      loaded_face:
+        selector: bounding_box_extreme
+        axis: x
+        extreme: max
+    boundary_conditions:
+      - node_set: fixed_face
+        dof: "123456"
+    loads:
+      - node_set: loaded_face
+        load_key: force
+        direction: [0.0, -1.0, 0.0]
+        distribution: equal
+initial_tasks:
+  - geometry
+  - mesh
+  - fea

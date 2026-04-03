@@ -65,6 +65,17 @@ class TacsFEABackend(FEABackend):
                     elements=elements,
                     output_directory=solution_directory,
                 )
+            elif request.solid_setup is not None:
+                analysis = self._run_solid_analysis(
+                    request=request,
+                    bdf_info=bdf_info,
+                    bdf_class=bdf_class,
+                    pyTACS=pyTACS,
+                    functions=functions,
+                    constitutive=constitutive,
+                    elements=elements,
+                    output_directory=solution_directory,
+                )
             else:
                 analysis = self._run_bdf_analysis(
                     request=request,
@@ -364,6 +375,117 @@ class TacsFEABackend(FEABackend):
             ),
         }
 
+    def _run_solid_analysis(
+        self,
+        *,
+        request: FEARequest,
+        bdf_info: Any,
+        bdf_class: Any | None = None,
+        pyTACS: Any,
+        functions: Any,
+        constitutive: Any,
+        elements: Any,
+        output_directory: Path,
+    ) -> dict[str, Any]:
+        node_positions = self._extract_node_positions(bdf_info)
+        resolved_node_sets = self._resolve_solid_node_sets(
+            request=request,
+            node_positions=node_positions,
+        )
+        case_analyses: dict[str, dict[str, Any]] = {}
+        requested_case_loads = self._requested_case_loads(request)
+        for case_name, case_loads in requested_case_loads.items():
+            started_at = time.perf_counter()
+            case_bdf_info = (
+                self._load_bdf(request.model_input_path, bdf_class)
+                if bdf_class is not None and request.model_input_path is not None
+                else bdf_info
+            )
+            case_node_positions = self._extract_node_positions(case_bdf_info)
+            case_resolved_node_sets = (
+                self._resolve_solid_node_sets(
+                    request=request,
+                    node_positions=case_node_positions,
+                )
+                if case_bdf_info is not bdf_info
+                else resolved_node_sets
+            )
+            constrained_nodes, bc_mode = self._apply_solid_boundary_conditions(
+                request=request,
+                bdf_info=case_bdf_info,
+                resolved_node_sets=case_resolved_node_sets,
+            )
+            assembler = pyTACS(case_bdf_info)
+            assembler.initialize(
+                self._build_solid_element_callback(
+                    constitutive=constitutive,
+                    elements=elements,
+                    allowable_stress=request.allowable_stress,
+                )
+            )
+            problem = assembler.createStaticProblem(case_name)
+            self._add_functions(problem, functions)
+            loaded_nodes, load_mode = self._apply_solid_loads(
+                request=request,
+                requested_loads=case_loads,
+                problem=problem,
+                resolved_node_sets=case_resolved_node_sets,
+            )
+            problem.solve()
+
+            if request.write_solution and hasattr(problem, "writeSolution"):
+                case_output_directory = ensure_directory(output_directory / case_name)
+                problem.writeSolution(outputDir=str(case_output_directory))
+
+            function_values: dict[str, float] = {}
+            problem.evalFunctions(function_values)
+            failure_index = self._extract_failure_index(function_values)
+            max_stress = (
+                float(failure_index) * request.allowable_stress if failure_index is not None else None
+            )
+            raw_max_stress, raw_max_stress_source = self._extract_raw_max_stress(
+                problem,
+                fallback_stress=max_stress,
+            )
+            case_analyses[case_name] = {
+                "case_name": case_name,
+                "load_source": "script",
+                "function_values": function_values,
+                "mass": self._extract_mass(function_values),
+                "failure_index": failure_index,
+                "max_stress": max_stress,
+                "raw_max_stress": raw_max_stress,
+                "raw_max_stress_source": raw_max_stress_source,
+                "displacement_norm": self._extract_displacement_norm(problem),
+                "boundary_conditions": {
+                    "constrained_node_count": len(constrained_nodes),
+                    "loaded_node_count": len(loaded_nodes),
+                    "bc_mode": bc_mode,
+                    "load_mode": load_mode,
+                },
+                "analysis_seconds": time.perf_counter() - started_at,
+            }
+
+        worst_case_name = self._select_worst_case_name(
+            case_analyses,
+            list(requested_case_loads),
+        )
+        worst_case = case_analyses[worst_case_name]
+        return {
+            "case_name": worst_case_name,
+            "load_source": "script",
+            "function_values": worst_case["function_values"],
+            "mass": worst_case["mass"],
+            "failure_index": worst_case["failure_index"],
+            "max_stress": worst_case["max_stress"],
+            "displacement_norm": worst_case["displacement_norm"],
+            "boundary_conditions": worst_case["boundary_conditions"],
+            "load_cases": case_analyses,
+            "analysis_seconds": sum(
+                case_analysis["analysis_seconds"] for case_analysis in case_analyses.values()
+            ),
+        }
+
     def _run_bdf_analysis(
         self,
         *,
@@ -497,6 +619,52 @@ class TacsFEABackend(FEABackend):
 
         return elem_callback
 
+    def _build_solid_element_callback(
+        self,
+        *,
+        constitutive: Any,
+        elements: Any,
+        allowable_stress: float,
+    ) -> Any:
+        def elem_callback(
+            dv_num: int,
+            comp_id: int,
+            comp_descript: str,
+            elem_descripts: list[str],
+            global_dvs: dict[str, Any],
+            **kwargs: Any,
+        ) -> tuple[list[Any], list[float]]:
+            del comp_id, comp_descript, global_dvs, kwargs
+            material = constitutive.MaterialProperties(
+                rho=1.0,
+                E=70_000.0,
+                nu=0.3,
+                ys=allowable_stress,
+            )
+            solid = constitutive.SolidConstitutive(
+                material,
+                t=1.0,
+                tNum=dv_num,
+                tlb=1.0,
+                tub=1.0,
+            )
+            model = elements.LinearElasticity3D(solid)
+
+            element_objects: list[Any] = []
+            for descript in elem_descripts:
+                normalized = descript.upper()
+                if normalized == "CHEXA":
+                    basis = elements.LinearHexaBasis()
+                elif normalized == "CTETRA":
+                    basis = elements.LinearTetrahedralBasis()
+                else:
+                    raise RuntimeError(f"Unsupported solid element type for TACS setup: {descript}")
+                element_objects.append(elements.Element3D(model, basis))
+
+            return element_objects, [100.0]
+
+        return elem_callback
+
     def _resolve_shell_thickness_assignments(
         self,
         request: FEARequest,
@@ -611,8 +779,61 @@ class TacsFEABackend(FEABackend):
                 resolved[name] = [self._closest_node_to_centroid(node_positions)]
                 continue
 
+            if selector.selector == "bounding_box_extreme":
+                resolved[name] = self._resolve_bounding_box_extreme_nodes(
+                    node_positions=node_positions,
+                    axis=selector.axis or "x",
+                    extreme=selector.extreme or "min",
+                    tolerance=selector.tolerance,
+                )
+                continue
+
             raise RuntimeError(f"Unsupported shell node-set selector '{selector.selector}'.")
 
+        return resolved
+
+    def _resolve_solid_node_sets(
+        self,
+        *,
+        request: FEARequest,
+        node_positions: dict[int, tuple[float, float, float]],
+    ) -> dict[str, list[int]]:
+        solid_setup = request.solid_setup
+        if solid_setup is None or not solid_setup.node_sets:
+            return {}
+
+        resolved: dict[str, list[int]] = {}
+        for name, selector in solid_setup.node_sets.items():
+            resolved[name] = self._resolve_bounding_box_extreme_nodes(
+                node_positions=node_positions,
+                axis=selector.axis,
+                extreme=selector.extreme,
+                tolerance=selector.tolerance,
+            )
+        return resolved
+
+    def _resolve_bounding_box_extreme_nodes(
+        self,
+        *,
+        node_positions: dict[int, tuple[float, float, float]],
+        axis: str,
+        extreme: str,
+        tolerance: float,
+    ) -> list[int]:
+        if not node_positions:
+            raise RuntimeError("No nodes are available for bounding-box selector resolution.")
+        axis_index = {"x": 0, "y": 1, "z": 2}[axis]
+        coordinate_values = [position[axis_index] for position in node_positions.values()]
+        target_value = min(coordinate_values) if extreme == "min" else max(coordinate_values)
+        resolved = [
+            node_id
+            for node_id, position in sorted(node_positions.items())
+            if abs(position[axis_index] - target_value) <= tolerance
+        ]
+        if not resolved:
+            raise RuntimeError(
+                f"No nodes matched the bounding-box selector axis={axis} extreme={extreme}."
+            )
         return resolved
 
     def _apply_shell_boundary_conditions(
@@ -686,6 +907,100 @@ class TacsFEABackend(FEABackend):
             loaded_nodes.update(node_ids)
 
         return sorted(loaded_nodes), "configured_shell_setup"
+
+    def _apply_solid_boundary_conditions(
+        self,
+        *,
+        request: FEARequest,
+        bdf_info: Any,
+        resolved_node_sets: dict[str, list[int]],
+    ) -> tuple[list[int], str]:
+        solid_setup = request.solid_setup
+        if solid_setup is not None and solid_setup.boundary_conditions:
+            constrained: set[int] = set()
+            for boundary_condition in solid_setup.boundary_conditions:
+                node_ids = resolved_node_sets[boundary_condition.node_set]
+                bdf_info.add_spc1(1, boundary_condition.dof, node_ids)
+                constrained.update(node_ids)
+            return sorted(constrained), "configured_solid_setup"
+
+        if self._has_explicit_spcs(bdf_info):
+            return [], "existing_spc"
+
+        raise RuntimeError(
+            "Solid models require boundary conditions from "
+            "fea.solid_setup.boundary_conditions or SPC cards in the BDF."
+        )
+
+    def _apply_solid_loads(
+        self,
+        *,
+        request: FEARequest,
+        requested_loads: dict[str, float],
+        problem: Any,
+        resolved_node_sets: dict[str, list[int]],
+    ) -> tuple[list[int], str]:
+        requested_loads = {
+            name: float(value) for name, value in requested_loads.items() if abs(float(value)) > 1e-12
+        }
+        if not requested_loads:
+            return [], "none"
+
+        solid_setup = request.solid_setup
+        configured_loads = solid_setup.loads if solid_setup is not None else []
+        if not configured_loads:
+            requested_keys = ", ".join(sorted(requested_loads))
+            raise RuntimeError(
+                "Solid scripted loads were requested but fea.solid_setup.loads is not configured. "
+                f"Requested load keys: {requested_keys}."
+            )
+
+        configured_keys = {load.load_key for load in configured_loads}
+        missing_keys = sorted(set(requested_loads) - configured_keys)
+        if missing_keys:
+            missing = ", ".join(missing_keys)
+            raise RuntimeError(
+                "Solid scripted loads are missing explicit node-set configuration for: "
+                f"{missing}."
+            )
+
+        loaded_nodes: set[int] = set()
+        for load in configured_loads:
+            magnitude = requested_loads.get(load.load_key)
+            if magnitude is None:
+                continue
+            node_ids = resolved_node_sets[load.node_set]
+            if load.distribution != "equal":
+                raise RuntimeError(
+                    f"Unsupported solid load distribution '{load.distribution}'."
+                )
+            load_vectors = self._distribute_solid_force_to_nodes(
+                node_ids,
+                magnitude,
+                tuple(load.direction),
+            )
+            problem.addLoadToNodes(node_ids, load_vectors, nastranOrdering=True)
+            loaded_nodes.update(node_ids)
+
+        return sorted(loaded_nodes), "configured_solid_setup"
+
+    def _distribute_solid_force_to_nodes(
+        self,
+        node_ids: list[int],
+        magnitude: float,
+        direction: tuple[float, float, float],
+    ) -> list[list[float]]:
+        if not node_ids:
+            raise RuntimeError("No solid nodes were selected for load application.")
+        component_scale = float(magnitude) / float(len(node_ids))
+        return [
+            [
+                component_scale * float(direction[0]),
+                component_scale * float(direction[1]),
+                component_scale * float(direction[2]),
+            ]
+            for _ in node_ids
+        ]
 
     def _closest_node_to_centroid(self, node_positions: dict[int, tuple[float, float, float]]) -> int:
         if not node_positions:

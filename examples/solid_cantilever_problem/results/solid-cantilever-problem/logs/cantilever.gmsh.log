@@ -1,0 +1,5 @@
+geometry=examples/solid_cantilever_problem/inputs/geometry/cantilever.stp
+mode=python-api-volume
+mesh_dimension=3
+volume_element_preference=hex_preferred
+volume_meshing_result=hex

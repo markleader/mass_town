@@ -12,6 +12,7 @@ SUPPORTED_GMSH_TYPES: dict[int, tuple[str, int]] = {
     4: ("tetrahedron", 4),
     5: ("hexahedron", 8),
 }
+IGNORED_GMSH_TYPES = {1, 15}
 
 _SANITIZE_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
@@ -23,7 +24,7 @@ def parse_gmsh_msh2(path: Path) -> NormalizedMesh:
     sections = _split_sections(lines)
 
     nodes = _parse_nodes(sections)
-    elements, unsupported = _parse_elements(sections)
+    elements, unsupported, ignored = _parse_elements(sections)
     if unsupported:
         details = ", ".join(
             f"type {element_type} ({count} elements)"
@@ -39,6 +40,10 @@ def parse_gmsh_msh2(path: Path) -> NormalizedMesh:
         raise ValueError("Generated gmsh mesh contains no elements; cannot export BDF.")
 
     physical_names = _parse_physical_names(sections)
+    target_dimension = max(
+        _entity_dimension_for_topology(str(element["topology"]))
+        for element in elements
+    )
     normalized_elements = [
         MeshElement(
             id=element["id"],
@@ -50,6 +55,7 @@ def parse_gmsh_msh2(path: Path) -> NormalizedMesh:
             entity_tag=element["entity_tag"],
         )
         for element in sorted(elements, key=lambda item: item["id"])
+        if int(element["entity_dim"]) == target_dimension
     ]
     regions = _build_regions(normalized_elements)
     return NormalizedMesh(
@@ -67,6 +73,8 @@ def parse_gmsh_msh2(path: Path) -> NormalizedMesh:
             "solid_element_count": sum(
                 1 for element in normalized_elements if element.element_kind == "solid"
             ),
+            "target_dimension": target_dimension,
+            "ignored_lower_dimensional_element_count": ignored + len(elements) - len(normalized_elements),
         },
     )
 
@@ -123,7 +131,7 @@ def _parse_nodes(sections: dict[str, list[str]]) -> list[MeshNode]:
 
 def _parse_elements(
     sections: dict[str, list[str]],
-) -> tuple[list[dict[str, object]], Counter[int]]:
+) -> tuple[list[dict[str, object]], Counter[int], int]:
     try:
         element_lines = sections["Elements"]
     except KeyError as exc:
@@ -138,6 +146,7 @@ def _parse_elements(
 
     elements: list[dict[str, object]] = []
     unsupported: Counter[int] = Counter()
+    ignored = 0
     for raw_line in element_lines[1:]:
         parts = raw_line.split()
         if len(parts) < 4:
@@ -149,6 +158,9 @@ def _parse_elements(
             raise ValueError(f"Malformed gmsh mesh element tags: {raw_line}")
         tags = [int(value) for value in parts[3 : 3 + tag_count]]
         node_tokens = parts[3 + tag_count :]
+        if element_type in IGNORED_GMSH_TYPES:
+            ignored += 1
+            continue
         if element_type not in SUPPORTED_GMSH_TYPES:
             unsupported[element_type] += 1
             continue
@@ -173,10 +185,11 @@ def _parse_elements(
         )
 
     if len(elements) + sum(unsupported.values()) != expected_count:
-        raise ValueError(
-            "Malformed gmsh mesh: declared element count does not match parsed elements."
-        )
-    return elements, unsupported
+        if len(elements) + sum(unsupported.values()) + ignored != expected_count:
+            raise ValueError(
+                "Malformed gmsh mesh: declared element count does not match parsed elements."
+            )
+    return elements, unsupported, ignored
 
 
 def _parse_physical_names(sections: dict[str, list[str]]) -> dict[int, str]:

@@ -14,7 +14,7 @@ def write_bdf(mesh: NormalizedMesh, output_path: Path) -> Path:
     region_by_key = {region.key: region for region in mesh.regions}
     lines = [
         "$ MassTown gmsh BDF export",
-        "$ Placeholder MAT1/PSHELL/PSOLID cards are intended for downstream override.",
+        "$ Placeholder PSHELL/PSOLID cards are intended for downstream override.",
         "CEND",
         "BEGIN BULK",
     ]
@@ -27,7 +27,7 @@ def write_bdf(mesh: NormalizedMesh, output_path: Path) -> Path:
         if region.raw_name is not None and region.raw_name != region.name:
             lines.append(f"$ REGION_RAW pid={region.pid} raw_name={region.raw_name}")
 
-    lines.append("MAT1,1,1.0,0.3,0.0")
+    lines.append("MAT1,1,70000.0,,0.3,1.0")
     for region in mesh.regions:
         if region.element_kind == "shell":
             lines.append(f"PSHELL,{region.pid},1,1.0")
@@ -41,9 +41,8 @@ def write_bdf(mesh: NormalizedMesh, output_path: Path) -> Path:
 
     for element in mesh.elements:
         region = region_by_key[(element.physical_group_id, element.physical_group_name)]
-        node_list = ",".join(str(node_id) for node_id in element.node_ids)
         card_name = _card_name(element.topology)
-        lines.append(f"{card_name},{element.id},{region.pid},{node_list}")
+        lines.extend(_element_card_lines(card_name, element.id, region.pid, element.node_ids))
 
     lines.append("ENDDATA")
     output_path.write_text("\n".join(lines) + "\n")
@@ -64,3 +63,30 @@ def _format_float(value: float) -> str:
     if "e" in text.lower() or "." in text:
         return text
     return f"{text}.0"
+
+
+def _element_card_lines(
+    card_name: str,
+    element_id: int,
+    pid: int,
+    node_ids: tuple[int, ...],
+) -> list[str]:
+    if card_name != "CHEXA":
+        node_list = ",".join(str(node_id) for node_id in node_ids)
+        return [f"{card_name},{element_id},{pid},{node_list}"]
+
+    first_line = ",".join(
+        [
+            card_name,
+            str(element_id),
+            str(pid),
+            *(str(node_id) for node_id in node_ids[:6]),
+        ]
+    )
+    second_line = ",".join(
+        [
+            "+",
+            *(str(node_id) for node_id in node_ids[6:]),
+        ]
+    )
+    return [first_line, second_line]

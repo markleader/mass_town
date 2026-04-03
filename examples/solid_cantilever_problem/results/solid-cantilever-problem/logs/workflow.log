@@ -1,0 +1,10 @@
+run_started run_id=solid-cantilever-problem
+iteration=1 task=geometry event=start
+iteration=1 task=geometry status=success
+iteration=2 task=mesh event=start
+iteration=2 task=mesh status=success
+iteration=3 task=fea event=start
+iteration=3 task=fea status=failure
+iteration=4 task=optimizer event=start
+iteration=4 task=optimizer status=success
+run_finished status=failed iteration_count=4

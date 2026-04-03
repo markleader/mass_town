@@ -137,6 +137,8 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 ### Phase 2 — Expanded structural physics
 
 * Solid element support
+* Solid cantilever benchmark (`examples/solid_cantilever_problem`)
+* Shell-vs-solid comparison benchmark (`examples/shell_cantilever_problem`)
 * Buckling analysis
 * Modal/frequency analysis
 

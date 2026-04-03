@@ -33,6 +33,7 @@ class MeshAgent(BaseAgent):
             run_id=state.run_id,
             mesh_dimension=config.meshing.mesh_dimension,
             step_face_selector=config.meshing.step_face_selector,
+            volume_element_preference=config.meshing.volume_element_preference,
             output_format=config.meshing.output_format,
             target_quality=config.meshing.target_quality,
         )

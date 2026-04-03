@@ -1,0 +1,3 @@
+name: fea-summary
+kind: analysis_report
+metadata: {'input_model': 'examples/solid_cantilever_problem/results/solid-cantilever-problem/mesh/cantilever.bdf', 'case_name': 'cantilever_solid', 'load_source': 'script', 'function_names': 'cantilever_solid_ks_vmfailure,cantilever_solid_mass', 'load_case_count': 1, 'worst_case_name': 'cantilever_solid', 'failure_index': nan, 'mesh_input_path': 'examples/solid_cantilever_problem/results/solid-cantilever-problem/mesh/cantilever.bdf', 'analysis_seconds': 0.009101, 'backend': 'tacs', 'passed': False, 'load_case_names': 'cantilever_solid', 'mass': 0.0, 'max_stress': nan, 'log_path': 'results/solid-cantilever-problem/logs/cantilever.tacs.log'}

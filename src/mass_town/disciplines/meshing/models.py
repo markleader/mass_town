@@ -10,7 +10,10 @@ class MeshingRequest(BaseModel):
     log_directory: Path
     run_id: str
     mesh_dimension: Literal[2, 3] = 3
-    step_face_selector: Literal["largest_planar"] | None = None
+    step_face_selector: (
+        Literal["largest_planar", "min_x", "max_x", "min_y", "max_y", "min_z", "max_z"] | None
+    ) = None
+    volume_element_preference: Literal["hex_preferred", "tet_only"] = "hex_preferred"
     output_format: Literal["msh", "bdf"] = "msh"
     target_quality: float
 

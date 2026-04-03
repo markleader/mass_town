@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from mass_town.constraints import ConstraintSet
 from mass_town.design_variables import DesignVariableAssignments
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
+from mass_town.disciplines.fea.solid_setup import FEASolidSetup
 
 
 class FEALoadCase(BaseModel):
@@ -40,6 +41,7 @@ class FEARequest(BaseModel):
     load_cases: dict[str, FEALoadCase] = Field(default_factory=dict)
     write_solution: bool = True
     shell_setup: FEAShellSetup | None = None
+    solid_setup: FEASolidSetup | None = None
 
 
 class FEAResult(BaseModel):

@@ -1,0 +1,26 @@
+{
+  "analysis_seconds": 0.009100542010855861,
+  "backend": "tacs",
+  "boundary_conditions": {
+    "bc_mode": "configured_solid_setup",
+    "constrained_node_count": 9,
+    "load_mode": "configured_solid_setup",
+    "loaded_node_count": 9
+  },
+  "case_name": "cantilever_solid",
+  "displacement_norm": null,
+  "failure_index": NaN,
+  "functions": {
+    "cantilever_solid_ks_vmfailure": NaN,
+    "cantilever_solid_mass": 0.0
+  },
+  "input_model": "examples/solid_cantilever_problem/results/solid-cantilever-problem/mesh/cantilever.bdf",
+  "load_source": "script",
+  "loads": {
+    "force": 10.0
+  },
+  "mass": 0.0,
+  "max_stress": NaN,
+  "raw_max_stress": NaN,
+  "raw_max_stress_source": "ks_failure_surrogate"
+}

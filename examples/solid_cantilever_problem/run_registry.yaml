@@ -1,0 +1,4 @@
+solid-cantilever-problem:
+  status: failed
+  iteration_count: 4
+  summary_path: results/solid-cantilever-problem/reports/run_summary.json

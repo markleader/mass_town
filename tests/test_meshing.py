@@ -2,6 +2,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from mass_town.agents.mesh_agent import MeshAgent
 from mass_town.config import WorkflowConfig
 from mass_town.disciplines.meshing import MeshingRequest, resolve_meshing_backend
@@ -28,6 +30,7 @@ def test_config_preserves_legacy_target_mesh_quality() -> None:
     assert config.meshing.target_quality == 0.82
     assert config.meshing.tool == "auto"
     assert config.meshing.mesh_dimension == 3
+    assert config.meshing.volume_element_preference == "hex_preferred"
     assert config.meshing.output_format == "msh"
 
 
@@ -37,14 +40,14 @@ def test_config_parses_bdf_output_format() -> None:
             "meshing": {
                 "output_format": "bdf",
                 "mesh_dimension": 2,
-                "step_face_selector": "largest_planar",
+                "step_face_selector": "max_y",
             }
         }
     )
 
     assert config.meshing.output_format == "bdf"
     assert config.meshing.mesh_dimension == 2
-    assert config.meshing.step_face_selector == "largest_planar"
+    assert config.meshing.step_face_selector == "max_y"
 
 
 def test_resolve_meshing_backend_prefers_gmsh_when_available(monkeypatch) -> None:
@@ -144,7 +147,7 @@ def test_parse_and_write_bdf_for_simple_shell_mesh(tmp_path: Path) -> None:
     text = bdf_path.read_text()
 
     assert "$ REGION pid=1 gmsh_id=10 kind=shell name=skin" in text
-    assert "MAT1,1,1.0,0.3,0.0" in text
+    assert "MAT1,1,70000.0,,0.3,1.0" in text
     assert "PSHELL,1,1,1.0" in text
     assert "GRID,1,,0.0,0.0,0.0" in text
     assert "CTRIA3,1,1,1,2,3" in text
@@ -180,7 +183,8 @@ def test_parse_and_write_bdf_for_simple_solid_mesh(tmp_path: Path) -> None:
     assert "$ REGION pid=1 gmsh_id=20 kind=solid name=block" in text
     assert "PSOLID,1,1" in text
     assert "CTETRA,1,1,1,2,3,5" in text
-    assert "CHEXA,2,1,1,2,3,4,5,6,7,8" in text
+    assert "CHEXA,2,1,1,2,3,4,5,6" in text
+    assert "+,7,8" in text
 
 
 def test_multiple_physical_groups_get_deterministic_pid_assignment(tmp_path: Path) -> None:
@@ -240,6 +244,70 @@ def test_unsupported_element_type_fails_clearly(tmp_path: Path) -> None:
     assert "type 6 (1 elements)" in message
 
 
+def test_parse_gmsh_msh2_ignores_lower_dimensional_entities_for_3d_export(tmp_path: Path) -> None:
+    mesh_path = tmp_path / "solid-with-boundary.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['2 10 "boundary"', '3 20 "block"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 0 0 1",
+                "6 1 0 1",
+                "7 1 1 1",
+                "8 0 1 1",
+            ],
+            elements=[
+                "1 15 2 0 1 1",
+                "2 1 2 0 1 1 2",
+                "3 2 2 10 100 1 2 3",
+                "4 4 2 20 200 1 2 3 5",
+                "5 5 2 20 200 1 2 3 4 5 6 7 8",
+            ],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+
+    assert mesh.metadata["target_dimension"] == 3
+    assert mesh.metadata["ignored_lower_dimensional_element_count"] == 3
+    assert [element.topology for element in mesh.elements] == ["tetrahedron", "hexahedron"]
+
+
+def test_chexa_bdf_round_trip_parses_with_pynastran(tmp_path: Path) -> None:
+    pytest.importorskip("pyNastran.bdf.bdf")
+    from pyNastran.bdf.bdf import BDF
+
+    mesh_path = tmp_path / "solid.msh"
+    mesh_path.write_text(
+        _msh_text(
+            physical_names=['3 20 "block"'],
+            nodes=[
+                "1 0 0 0",
+                "2 1 0 0",
+                "3 1 1 0",
+                "4 0 1 0",
+                "5 0 0 1",
+                "6 1 0 1",
+                "7 1 1 1",
+                "8 0 1 1",
+            ],
+            elements=["2 5 2 20 200 1 2 3 4 5 6 7 8"],
+        )
+    )
+
+    mesh = parse_gmsh_msh2(mesh_path)
+    bdf_path = write_bdf(mesh, tmp_path / "solid.bdf")
+
+    bdf = BDF(debug=False, log=None)
+    bdf.read_bdf(str(bdf_path), xref=False)
+
+    assert 2 in bdf.elements
+    assert bdf.elements[2].type == "CHEXA"
+
+
 def test_unassigned_elements_export_to_unassigned_region(tmp_path: Path) -> None:
     mesh_path = tmp_path / "unassigned.msh"
     mesh_path.write_text(
@@ -263,7 +331,7 @@ def test_unassigned_elements_export_to_unassigned_region(tmp_path: Path) -> None
     assert "CTRIA3,1,1,1,2,3" in text
 
 
-def test_mixed_shell_and_solid_regions_export_successfully(tmp_path: Path) -> None:
+def test_mixed_shell_and_solid_regions_export_prefers_volume_elements_for_3d_meshes(tmp_path: Path) -> None:
     mesh_path = tmp_path / "mixed.msh"
     mesh_path.write_text(
         _msh_text(
@@ -289,13 +357,15 @@ def test_mixed_shell_and_solid_regions_export_successfully(tmp_path: Path) -> No
     bdf_path = write_bdf(mesh, tmp_path / "mixed.bdf")
     text = bdf_path.read_text()
 
+    assert mesh.metadata["target_dimension"] == 3
     assert "PSOLID,1,1" in text
-    assert "PSHELL,2,1,1.0" in text
-    assert "CTRIA3,1,2,1,2,3" in text
-    assert "CHEXA,2,1,1,2,3,4,5,6,7,8" in text
+    assert "PSHELL," not in text
+    assert "CTRIA3" not in text
+    assert "CHEXA,2,1,1,2,3,4,5,6" in text
+    assert "+,7,8" in text
 
 
-def test_mixed_shell_and_solid_elements_in_one_group_fail(tmp_path: Path) -> None:
+def test_same_region_shell_faces_are_ignored_when_solid_volume_elements_exist(tmp_path: Path) -> None:
     mesh_path = tmp_path / "bad-mixed.msh"
     mesh_path.write_text(
         _msh_text(
@@ -317,14 +387,10 @@ def test_mixed_shell_and_solid_elements_in_one_group_fail(tmp_path: Path) -> Non
         )
     )
 
-    try:
-        parse_gmsh_msh2(mesh_path)
-    except ValueError as exc:
-        message = str(exc)
-    else:
-        raise AssertionError("Expected mixed-region failure")
+    mesh = parse_gmsh_msh2(mesh_path)
 
-    assert "Physical group 'wing_skin' mixes shell and solid elements" in message
+    assert mesh.metadata["target_dimension"] == 3
+    assert [element.topology for element in mesh.elements] == ["hexahedron"]
 
 
 def test_gmsh_backend_preserves_existing_msh_export(tmp_path: Path, monkeypatch) -> None:
@@ -372,6 +438,7 @@ def test_gmsh_backend_meshes_largest_planar_face_via_python_api(
     backend = GmshMeshingBackend()
     fake_gmsh = _FakeGmsh(tmp_path)
     monkeypatch.setattr(backend, "_load_gmsh_python_module", lambda: fake_gmsh)
+    monkeypatch.setattr(backend, "_python_api_available", lambda: True)
 
     result = backend.generate_mesh(
         MeshingRequest(
@@ -392,6 +459,34 @@ def test_gmsh_backend_meshes_largest_planar_face_via_python_api(
     assert result.metadata["step_face_selector"] == "largest_planar"
     assert fake_gmsh.model.selected_physical_tags == [10]
     assert fake_gmsh.model.mesh.generated_dimension == 2
+
+
+def test_gmsh_backend_meshes_directional_planar_face_via_python_api(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    geometry_path = tmp_path / "shape.stp"
+    geometry_path.write_text("dummy")
+    backend = GmshMeshingBackend()
+    fake_gmsh = _FakeGmsh(tmp_path)
+    monkeypatch.setattr(backend, "_load_gmsh_python_module", lambda: fake_gmsh)
+    monkeypatch.setattr(backend, "_python_api_available", lambda: True)
+
+    result = backend.generate_mesh(
+        MeshingRequest(
+            geometry_input_path=geometry_path,
+            mesh_directory=tmp_path,
+            log_directory=tmp_path,
+            run_id="mesh-run",
+            mesh_dimension=2,
+            step_face_selector="max_y",
+            output_format="bdf",
+            target_quality=0.75,
+        )
+    )
+
+    assert result.metadata["step_face_selector"] == "max_y"
+    assert fake_gmsh.model.selected_physical_tags == [11]
 
 
 def _msh_text(
@@ -471,6 +566,25 @@ class _FakeMesh:
     def generate(self, dimension: int) -> None:
         self.generated_dimension = dimension
 
+    def getElements(
+        self,
+        dimension: int,
+    ) -> tuple[list[int], list[list[int]], list[list[int]]]:
+        del dimension
+        return ([5], [[1]], [[1, 2, 3, 4, 5, 6, 7, 8]])
+
+    def setTransfiniteCurve(self, tag: int, point_count: int) -> None:
+        del tag, point_count
+
+    def setTransfiniteSurface(self, tag: int) -> None:
+        del tag
+
+    def setRecombine(self, dim: int, tag: int) -> None:
+        del dim, tag
+
+    def setTransfiniteVolume(self, tag: int) -> None:
+        del tag
+
 
 class _FakeOcc:
     def importShapes(self, path: str) -> None:
@@ -496,6 +610,8 @@ class _FakeModel:
     def getEntities(self, dim: int | None = None) -> list[tuple[int, int]]:
         if dim == 2:
             return [(2, 10), (2, 11), (2, 12)]
+        if dim == 3:
+            return [(3, 13)]
         return [(0, 1), (0, 2), (1, 3), (1, 4), (2, 10), (2, 11), (2, 12), (3, 13)]
 
     def getType(self, dim: int, tag: int) -> str:
@@ -509,6 +625,17 @@ class _FakeModel:
 
     def setPhysicalName(self, dim: int, physical_id: int, name: str) -> None:
         del dim, physical_id, name
+
+    def getBoundingBox(self, dim: int, tag: int) -> tuple[float, float, float, float, float, float]:
+        del dim
+        return {
+            10: (0.0, 0.0, 0.0, 4.0, 0.0, 2.0),
+            11: (0.0, 10.0, 0.0, 4.0, 10.0, 2.0),
+            12: (0.0, 0.0, 0.0, 4.0, 10.0, 2.0),
+            13: (0.0, 0.0, 0.0, 4.0, 10.0, 2.0),
+            3: (0.0, 0.0, 0.0, 4.0, 0.0, 0.0),
+            4: (0.0, 10.0, 0.0, 4.0, 10.0, 0.0),
+        }[tag]
 
     def getBoundary(
         self,

@@ -116,10 +116,10 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 2.1 Solid-element example
 
-* [ ] Add a 3D solid mesh path.
-* [ ] Add a solid-element TACS example.
-* [ ] Define how BCs and loads are specified for solid problems.
-* [ ] Compare shell vs solid behavior on a simple benchmark geometry.
+* [x] Add a 3D solid mesh path.
+* [x] Add a solid-element TACS example.
+* [x] Define how BCs and loads are specified for solid problems.
+* [x] Compare shell vs solid behavior on a simple benchmark geometry.
 
 #### 2.2 Buckling analysis
 
