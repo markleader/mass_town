@@ -37,11 +37,25 @@ runtime session.
 ## Current repo commands
 
 - Core validation uses `pixi run -e default test`.
+- The checked-in status shortcut is `pixi run -e default run-core-status`.
 - OpenMDAO checks belong in `mdao`, for example
   `pixi run -e mdao python -c "import openmdao.api as om; print(om.__version__)"`.
 - The checked-in structural baseline is TACS-backed; run it from `fea` with
   `pixi run -e fea run-fea-example`.
+- Additional checked-in `fea` example runners are
+  `pixi run -e fea run-shell-bdf-example`,
+  `pixi run -e fea run-shell-bdf-multi-case-example`,
+  `pixi run -e fea run-shell-buckling-bdf-example`,
+  `pixi run -e fea run-solid-cantilever-example`, and
+  `pixi run -e fea run-shell-cantilever-example`.
 - The baseline regression check is `pixi run -e fea test-fea-baseline`.
+- Additional `fea` regression checks are
+  `pixi run -e fea test-shell-bdf-example`,
+  `pixi run -e fea test-shell-bdf-multi-case-example`,
+  `pixi run -e fea test-shell-buckling-bdf-example`,
+  `pixi run -e fea test-solid-cantilever-example`,
+  `pixi run -e fea test-shell-cantilever-example`, and
+  `pixi run -e fea test-shell-vs-solid-cantilever`.
 - Use `pixi run -e fea install-local-tacs` for local TACS wiring, with optional
   `TACS_DIR` when the checkout is not under `~/git/tacs`.
 - Direct CLI entry points currently documented in the repo are
@@ -55,6 +69,9 @@ runtime session.
   `solver/`, and `reports/`.
 - Baseline regressions use `reports/run_summary.json` as the normalized summary
   artifact and regression contract.
+- The multi-case shell sizing example also writes
+  `reports/stress_aggregation_summary.json` for aggregation-vs-raw stress
+  comparisons.
 
 
 ## Engineering Hygiene & Infrastructure (Always-On Requirements)
