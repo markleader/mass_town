@@ -1,0 +1,26 @@
+run_id: shell-modal-bdf-problem
+problem_name: shell_modal_bdf_problem
+status: pending
+iteration: 0
+design_variables:
+  thickness: 0.01
+loads: {}
+constraints:
+  minimum_natural_frequency_hz:
+    mode: 0
+    minimum: 0.25
+geometry_state:
+  valid: true
+  notes: bdf-first
+mesh_state:
+  quality: 0.0
+  elements: 0
+analysis_state:
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  passed: false
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

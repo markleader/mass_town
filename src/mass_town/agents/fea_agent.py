@@ -5,6 +5,7 @@ from mass_town.config import WorkflowConfig
 from mass_town.constraints import (
     aggregate_case_stresses,
     evaluate_minimum_buckling_load_factor_constraint,
+    evaluate_minimum_natural_frequency_constraint,
 )
 from mass_town.design_variables import (
     DesignVariableContext,
@@ -90,6 +91,7 @@ class FEAAgent(BaseAgent):
             load_cases=load_cases,
             write_solution=config.fea.write_solution,
             buckling_setup=config.fea.buckling_setup,
+            modal_setup=config.fea.modal_setup,
             shell_setup=config.fea.shell_setup,
             solid_setup=config.fea.solid_setup,
         )
@@ -159,6 +161,13 @@ class FEAAgent(BaseAgent):
             },
             request.constraints.minimum_buckling_load_factor,
         )
+        minimum_natural_frequency = evaluate_minimum_natural_frequency_constraint(
+            {
+                case_name: tuple(case_result.eigenvalues)
+                for case_name, case_result in normalized_case_results.items()
+            },
+            request.constraints.minimum_natural_frequency_hz,
+        )
         worst_case_name = self._select_worst_case_name(
             normalized_case_results,
             ordered_case_names,
@@ -166,6 +175,11 @@ class FEAAgent(BaseAgent):
             minimum_buckling_load_factor_case=(
                 minimum_buckling_load_factor.controlling_case
                 if minimum_buckling_load_factor is not None
+                else None
+            ),
+            minimum_natural_frequency_case=(
+                minimum_natural_frequency.controlling_case
+                if minimum_natural_frequency is not None
                 else None
             ),
         )
@@ -205,6 +219,8 @@ class FEAAgent(BaseAgent):
             passed = passed and aggregated_stress.passed
         if minimum_buckling_load_factor is not None:
             passed = passed and minimum_buckling_load_factor.passed
+        if minimum_natural_frequency is not None:
+            passed = passed and minimum_natural_frequency.passed
         metadata.update(
             {
                 "backend": fea_result.backend_name,
@@ -234,6 +250,13 @@ class FEAAgent(BaseAgent):
             metadata["critical_eigenvalue"] = round(worst_case_result.critical_eigenvalue, 6)
         elif fea_result.critical_eigenvalue is not None:
             metadata["critical_eigenvalue"] = round(fea_result.critical_eigenvalue, 6)
+        if worst_case_result is not None and worst_case_result.critical_frequency_hz is not None:
+            metadata["critical_frequency_hz"] = round(
+                worst_case_result.critical_frequency_hz,
+                6,
+            )
+        elif fea_result.critical_frequency_hz is not None:
+            metadata["critical_frequency_hz"] = round(fea_result.critical_frequency_hz, 6)
         if fea_result.log_path is not None:
             metadata["log_path"] = str(fea_result.log_path.relative_to(run_root))
         if aggregated_stress is not None:
@@ -268,6 +291,22 @@ class FEAAgent(BaseAgent):
                 metadata["minimum_buckling_load_factor_controlling_case"] = (
                     minimum_buckling_load_factor.controlling_case
                 )
+        if minimum_natural_frequency is not None:
+            metadata["minimum_natural_frequency_hz_mode"] = minimum_natural_frequency.mode
+            metadata["minimum_natural_frequency_hz_minimum"] = round(
+                minimum_natural_frequency.minimum,
+                6,
+            )
+            metadata["minimum_natural_frequency_hz_passed"] = minimum_natural_frequency.passed
+            if minimum_natural_frequency.value is not None:
+                metadata["minimum_natural_frequency_hz_value"] = round(
+                    minimum_natural_frequency.value,
+                    6,
+                )
+            if minimum_natural_frequency.controlling_case is not None:
+                metadata["minimum_natural_frequency_hz_controlling_case"] = (
+                    minimum_natural_frequency.controlling_case
+                )
 
         result_files = list(fea_result.result_files)
         primary_result_path = (
@@ -294,16 +333,38 @@ class FEAAgent(BaseAgent):
                 "analysis_type": case_result.analysis_type,
                 "eigenvalues": list(case_result.eigenvalues),
                 "critical_eigenvalue": case_result.critical_eigenvalue,
+                "frequencies_hz": list(case_result.frequencies_hz),
+                "critical_frequency_hz": case_result.critical_frequency_hz,
                 "passed": (
                     self._case_passed(case_result, config.allowable_stress)
                     and self._case_satisfies_minimum_buckling_load_factor(
                         case_result,
                         request.constraints.minimum_buckling_load_factor,
                     )
+                    and self._case_satisfies_minimum_natural_frequency(
+                        case_result,
+                        request.constraints.minimum_natural_frequency_hz,
+                    )
                 ),
                 "analysis_seconds": case_result.analysis_seconds,
             }
             for case_name, case_result in normalized_case_results.items()
+        }
+        eigenvalue_constraints = {
+            name: value
+            for name, value in {
+                "minimum_buckling_load_factor": (
+                    minimum_buckling_load_factor.model_dump(mode="python")
+                    if minimum_buckling_load_factor is not None
+                    else None
+                ),
+                "minimum_natural_frequency_hz": (
+                    minimum_natural_frequency.model_dump(mode="python")
+                    if minimum_natural_frequency is not None
+                    else None
+                ),
+            }.items()
+            if value is not None
         }
 
         updates = {
@@ -338,6 +399,17 @@ class FEAAgent(BaseAgent):
                     and worst_case_result.critical_eigenvalue is not None
                     else fea_result.critical_eigenvalue
                 ),
+                "frequencies_hz": (
+                    list(worst_case_result.frequencies_hz)
+                    if worst_case_result is not None and worst_case_result.frequencies_hz
+                    else list(fea_result.frequencies_hz)
+                ),
+                "critical_frequency_hz": (
+                    worst_case_result.critical_frequency_hz
+                    if worst_case_result is not None
+                    and worst_case_result.critical_frequency_hz is not None
+                    else fea_result.critical_frequency_hz
+                ),
                 "passed": passed,
                 "load_cases": analysis_state_load_cases,
                 "worst_case_name": worst_case_name,
@@ -346,15 +418,7 @@ class FEAAgent(BaseAgent):
                     if aggregated_stress is not None
                     else None
                 ),
-                "eigenvalue_constraints": {
-                    "minimum_buckling_load_factor": (
-                        minimum_buckling_load_factor.model_dump(mode="python")
-                        if minimum_buckling_load_factor is not None
-                        else None
-                    )
-                }
-                if minimum_buckling_load_factor is not None
-                else {},
+                "eigenvalue_constraints": eigenvalue_constraints,
                 "analysis_seconds": analysis_seconds,
             }
         }
@@ -400,6 +464,32 @@ class FEAAgent(BaseAgent):
                     "mode": minimum_buckling_load_factor.mode,
                     "backend": fea_result.backend_name,
                     "controlling_case": minimum_buckling_load_factor.controlling_case or "",
+                },
+            )
+            return AgentResult(
+                status="failure",
+                task=self.task_name,
+                message=diagnostic.message,
+                diagnostics=[diagnostic],
+                artifacts=artifacts,
+                updates=updates,
+            )
+
+        if (
+            minimum_natural_frequency is not None
+            and not minimum_natural_frequency.passed
+            and minimum_natural_frequency.value is not None
+        ):
+            diagnostic = Diagnostic(
+                code="analysis.minimum_natural_frequency_not_met",
+                message="Minimum natural frequency constraint is not satisfied.",
+                task=self.task_name,
+                details={
+                    "natural_frequency_hz": round(minimum_natural_frequency.value, 3),
+                    "minimum": minimum_natural_frequency.minimum,
+                    "mode": minimum_natural_frequency.mode,
+                    "backend": fea_result.backend_name,
+                    "controlling_case": minimum_natural_frequency.controlling_case or "",
                 },
             )
             return AgentResult(
@@ -472,6 +562,8 @@ class FEAAgent(BaseAgent):
                 analysis_type=fea_result.analysis_type,
                 eigenvalues=list(fea_result.eigenvalues),
                 critical_eigenvalue=fea_result.critical_eigenvalue,
+                frequencies_hz=list(fea_result.frequencies_hz),
+                critical_frequency_hz=fea_result.critical_frequency_hz,
                 metadata=dict(fea_result.metadata),
                 log_path=fea_result.log_path,
                 analysis_seconds=fea_result.analysis_seconds,
@@ -485,6 +577,7 @@ class FEAAgent(BaseAgent):
         *,
         analysis_type: str,
         minimum_buckling_load_factor_case: str | None = None,
+        minimum_natural_frequency_case: str | None = None,
     ) -> str | None:
         candidate_names = [name for name in ordered_case_names if name in case_results]
         if not candidate_names:
@@ -494,9 +587,11 @@ class FEAAgent(BaseAgent):
 
         if minimum_buckling_load_factor_case in candidate_names:
             return minimum_buckling_load_factor_case
+        if minimum_natural_frequency_case in candidate_names:
+            return minimum_natural_frequency_case
 
         best_name: str | None = None
-        if analysis_type == "buckling":
+        if analysis_type in {"buckling", "modal"}:
             best_eigenvalue: float | None = None
             for case_name in candidate_names:
                 critical_eigenvalue = case_results[case_name].critical_eigenvalue
@@ -554,6 +649,17 @@ class FEAAgent(BaseAgent):
         if len(case_result.eigenvalues) <= constraint.mode:
             return False
         return float(case_result.eigenvalues[constraint.mode]) >= float(constraint.minimum)
+
+    def _case_satisfies_minimum_natural_frequency(
+        self,
+        case_result: FEALoadCaseResult,
+        constraint: object,
+    ) -> bool:
+        if constraint is None:
+            return True
+        if len(case_result.frequencies_hz) <= constraint.mode:
+            return False
+        return float(case_result.frequencies_hz[constraint.mode]) >= float(constraint.minimum)
 
     def _relative_case_result_path(
         self,

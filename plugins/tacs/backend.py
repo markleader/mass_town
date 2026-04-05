@@ -5,7 +5,7 @@ import re
 import time
 from typing import Any
 
-from mass_town.constraints import aggregate_case_stresses
+from mass_town.constraints import aggregate_case_stresses, modal_eigenvalues_to_frequencies_hz
 from mass_town.disciplines.fea import FEABackend, FEALoadCaseResult, FEARequest, FEAResult
 from mass_town.storage.filesystem import ensure_directory
 
@@ -71,6 +71,22 @@ class TacsFEABackend(FEABackend):
                         "The tacs buckling path currently supports shell BDF models with "
                         "explicit shell load configuration."
                     )
+            elif request.analysis_type == "modal":
+                if self._is_shell_model(bdf_info):
+                    analysis = self._run_shell_modal_analysis(
+                        request=request,
+                        bdf_info=bdf_info,
+                        bdf_class=bdf_class,
+                        pyTACS=pyTACS,
+                        functions=functions,
+                        constitutive=constitutive,
+                        elements=elements,
+                        output_directory=solution_directory,
+                    )
+                else:
+                    raise ValueError(
+                        "The tacs modal path currently supports shell BDF models."
+                    )
             elif self._is_shell_model(bdf_info):
                 analysis = self._run_shell_analysis(
                     request=request,
@@ -130,6 +146,8 @@ class TacsFEABackend(FEABackend):
                 "buckling_functions": case_analysis.get("buckling_function_values"),
                 "eigenvalues": case_analysis.get("eigenvalues", []),
                 "critical_eigenvalue": case_analysis.get("critical_eigenvalue"),
+                "frequencies_hz": case_analysis.get("frequencies_hz", []),
+                "critical_frequency_hz": case_analysis.get("critical_frequency_hz"),
                 "boundary_conditions": case_analysis.get("boundary_conditions"),
                 "analysis_seconds": case_analysis["analysis_seconds"],
             }
@@ -137,6 +155,11 @@ class TacsFEABackend(FEABackend):
                 case_summary["buckling_load_factors"] = case_analysis.get("eigenvalues", [])
                 case_summary["critical_buckling_load_factor"] = case_analysis.get(
                     "critical_eigenvalue"
+                )
+            if request.analysis_type == "modal":
+                case_summary["natural_frequencies_hz"] = case_analysis.get("frequencies_hz", [])
+                case_summary["critical_natural_frequency_hz"] = case_analysis.get(
+                    "critical_frequency_hz"
                 )
             if "selected_case_name" in case_analysis:
                 case_summary["selected_case_name"] = case_analysis["selected_case_name"]
@@ -167,6 +190,11 @@ class TacsFEABackend(FEABackend):
                     float(case_analysis["critical_eigenvalue"]),
                     6,
                 )
+            if case_analysis.get("critical_frequency_hz") is not None:
+                case_metadata["critical_frequency_hz"] = round(
+                    float(case_analysis["critical_frequency_hz"]),
+                    6,
+                )
             if backend_version is not None:
                 case_metadata["backend_version"] = backend_version
             if request.mesh_input_path is not None:
@@ -184,6 +212,8 @@ class TacsFEABackend(FEABackend):
                 analysis_type=request.analysis_type,
                 eigenvalues=list(case_analysis.get("eigenvalues", [])),
                 critical_eigenvalue=case_analysis.get("critical_eigenvalue"),
+                frequencies_hz=list(case_analysis.get("frequencies_hz", [])),
+                critical_frequency_hz=case_analysis.get("critical_frequency_hz"),
                 metadata=case_metadata,
                 analysis_seconds=case_analysis["analysis_seconds"],
             )
@@ -198,6 +228,8 @@ class TacsFEABackend(FEABackend):
                 "displacement_norm": case_analysis["displacement_norm"],
                 "eigenvalues": case_analysis.get("eigenvalues", []),
                 "critical_eigenvalue": case_analysis.get("critical_eigenvalue"),
+                "frequencies_hz": case_analysis.get("frequencies_hz", []),
+                "critical_frequency_hz": case_analysis.get("critical_frequency_hz"),
                 "analysis_seconds": case_analysis["analysis_seconds"],
                 "summary_path": str(case_summary_path),
             }
@@ -208,6 +240,14 @@ class TacsFEABackend(FEABackend):
                 )
                 summary_case_data[case_name]["critical_buckling_load_factor"] = case_analysis.get(
                     "critical_eigenvalue"
+                )
+            if request.analysis_type == "modal":
+                summary_case_data[case_name]["natural_frequencies_hz"] = case_analysis.get(
+                    "frequencies_hz",
+                    [],
+                )
+                summary_case_data[case_name]["critical_natural_frequency_hz"] = case_analysis.get(
+                    "critical_frequency_hz"
                 )
             if "selected_case_name" in case_analysis:
                 summary_case_data[case_name]["selected_case_name"] = case_analysis["selected_case_name"]
@@ -238,6 +278,8 @@ class TacsFEABackend(FEABackend):
             "buckling_functions": analysis.get("buckling_function_values"),
             "eigenvalues": analysis.get("eigenvalues", []),
             "critical_eigenvalue": analysis.get("critical_eigenvalue"),
+            "frequencies_hz": analysis.get("frequencies_hz", []),
+            "critical_frequency_hz": analysis.get("critical_frequency_hz"),
             "boundary_conditions": analysis.get("boundary_conditions"),
             "worst_case_name": analysis["case_name"],
             "aggregation_quality_summary_path": (
@@ -250,6 +292,9 @@ class TacsFEABackend(FEABackend):
         if request.analysis_type == "buckling":
             summary["buckling_load_factors"] = analysis.get("eigenvalues", [])
             summary["critical_buckling_load_factor"] = analysis.get("critical_eigenvalue")
+        if request.analysis_type == "modal":
+            summary["natural_frequencies_hz"] = analysis.get("frequencies_hz", [])
+            summary["critical_natural_frequency_hz"] = analysis.get("critical_frequency_hz")
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
         log_path.write_text(
             "TACS analysis completed successfully.\n"
@@ -270,6 +315,8 @@ class TacsFEABackend(FEABackend):
             metadata["failure_index"] = round(float(analysis["failure_index"]), 6)
         if analysis.get("critical_eigenvalue") is not None:
             metadata["critical_eigenvalue"] = round(float(analysis["critical_eigenvalue"]), 6)
+        if analysis.get("critical_frequency_hz") is not None:
+            metadata["critical_frequency_hz"] = round(float(analysis["critical_frequency_hz"]), 6)
         if backend_version is not None:
             metadata["backend_version"] = backend_version
         if request.mesh_input_path is not None:
@@ -292,6 +339,8 @@ class TacsFEABackend(FEABackend):
             analysis_type=request.analysis_type,
             eigenvalues=list(analysis.get("eigenvalues", [])),
             critical_eigenvalue=analysis.get("critical_eigenvalue"),
+            frequencies_hz=list(analysis.get("frequencies_hz", [])),
+            critical_frequency_hz=analysis.get("critical_frequency_hz"),
             result_files=result_files,
             metadata=metadata,
             log_path=log_path,
@@ -689,6 +738,128 @@ class TacsFEABackend(FEABackend):
             ),
         }
 
+    def _run_shell_modal_analysis(
+        self,
+        *,
+        request: FEARequest,
+        bdf_info: Any,
+        bdf_class: Any | None = None,
+        pyTACS: Any,
+        functions: Any,
+        constitutive: Any,
+        elements: Any,
+        output_directory: Path,
+    ) -> dict[str, Any]:
+        node_positions = self._extract_node_positions(bdf_info)
+        shell_elements = self._extract_shell_elements(bdf_info)
+        resolved_node_sets = self._resolve_shell_node_sets(
+            request=request,
+            node_positions=node_positions,
+            shell_elements=shell_elements,
+        )
+        shell_thickness = self._resolve_shell_thickness_assignments(
+            request,
+            request.model_input_path,
+            bdf_info,
+        )
+
+        case_analyses: dict[str, dict[str, Any]] = {}
+        requested_case_loads = self._requested_case_loads(request)
+        self._validate_modal_case_loads(requested_case_loads)
+        for case_name in requested_case_loads:
+            started_at = time.perf_counter()
+            case_bdf_info = (
+                self._load_bdf(request.model_input_path, bdf_class)
+                if bdf_class is not None and request.model_input_path is not None
+                else bdf_info
+            )
+            constrained_nodes, bc_mode = self._apply_shell_boundary_conditions(
+                request=request,
+                bdf_info=case_bdf_info,
+                resolved_node_sets=resolved_node_sets,
+            )
+            assembler = pyTACS(case_bdf_info)
+            assembler.initialize(
+                self._build_shell_element_callback(
+                    constitutive=constitutive,
+                    elements=elements,
+                    default_thickness=shell_thickness["default_thickness"],
+                    component_thickness=shell_thickness["component_thickness"],
+                    allowable_stress=request.allowable_stress,
+                )
+            )
+
+            mass_problem = assembler.createStaticProblem(f"{case_name}_mass")
+            self._add_mass_function(mass_problem, functions)
+            mass_problem.solve()
+            mass_function_values: dict[str, float] = {}
+            mass_problem.evalFunctions(mass_function_values)
+            mass = self._extract_mass(mass_function_values)
+
+            modal_problem = self._create_modal_problem(assembler, request, case_name)
+            modal_problem.solve()
+            if request.write_solution and hasattr(modal_problem, "writeSolution"):
+                modal_output_directory = ensure_directory(output_directory / case_name / "modal")
+                modal_problem.writeSolution(outputDir=str(modal_output_directory))
+
+            modal_function_values: dict[str, float] = {}
+            modal_problem.evalFunctions(modal_function_values)
+            eigenvalues = self._extract_eigenvalues(modal_function_values)
+            critical_eigenvalue = self._extract_critical_eigenvalue(eigenvalues)
+            frequencies_hz = self._extract_frequencies_hz(eigenvalues)
+            critical_frequency_hz = self._extract_critical_frequency_hz(frequencies_hz)
+
+            case_analyses[case_name] = {
+                "case_name": case_name,
+                "load_source": "none",
+                "function_values": modal_function_values,
+                "modal_function_values": modal_function_values,
+                "mass": mass,
+                "failure_index": None,
+                "max_stress": None,
+                "raw_max_stress": None,
+                "raw_max_stress_source": None,
+                "displacement_norm": None,
+                "eigenvalues": eigenvalues,
+                "critical_eigenvalue": critical_eigenvalue,
+                "frequencies_hz": frequencies_hz,
+                "critical_frequency_hz": critical_frequency_hz,
+                "boundary_conditions": {
+                    "constrained_node_count": len(constrained_nodes),
+                    "loaded_node_count": 0,
+                    "bc_mode": bc_mode,
+                    "load_mode": "none",
+                },
+                "analysis_seconds": time.perf_counter() - started_at,
+            }
+
+        worst_case_name = self._select_case_name_by_metric(
+            case_analyses,
+            list(requested_case_loads),
+            metric="critical_eigenvalue",
+            reverse=False,
+        )
+        worst_case = case_analyses[worst_case_name]
+        return {
+            "case_name": worst_case_name,
+            "load_source": "none",
+            "function_values": worst_case["function_values"],
+            "modal_function_values": worst_case["modal_function_values"],
+            "mass": worst_case["mass"],
+            "failure_index": None,
+            "max_stress": None,
+            "displacement_norm": None,
+            "eigenvalues": worst_case["eigenvalues"],
+            "critical_eigenvalue": worst_case["critical_eigenvalue"],
+            "frequencies_hz": worst_case["frequencies_hz"],
+            "critical_frequency_hz": worst_case["critical_frequency_hz"],
+            "boundary_conditions": worst_case["boundary_conditions"],
+            "load_cases": case_analyses,
+            "analysis_seconds": sum(
+                case_analysis["analysis_seconds"] for case_analysis in case_analyses.values()
+            ),
+        }
+
     def _run_bdf_analysis(
         self,
         *,
@@ -773,6 +944,16 @@ class TacsFEABackend(FEABackend):
         )
         return assembler.createBucklingProblem(
             f"{case_name}_buckling",
+            sigma=sigma,
+            numEigs=num_eigenvalues,
+        )
+
+    def _create_modal_problem(self, assembler: Any, request: FEARequest, case_name: str) -> Any:
+        modal_setup = request.modal_setup
+        sigma = modal_setup.sigma if modal_setup is not None else 100.0
+        num_eigenvalues = modal_setup.num_eigenvalues if modal_setup is not None else 5
+        return assembler.createModalProblem(
+            f"{case_name}_modal",
             sigma=sigma,
             numEigs=num_eigenvalues,
         )
@@ -1284,6 +1465,23 @@ class TacsFEABackend(FEABackend):
             request.case_name: dict(request.loads),
         }
 
+    def _validate_modal_case_loads(
+        self,
+        requested_case_loads: dict[str, dict[str, float]],
+    ) -> None:
+        for case_name, case_loads in requested_case_loads.items():
+            nonzero_loads = {
+                load_name: float(value)
+                for load_name, value in case_loads.items()
+                if abs(float(value)) > 1e-12
+            }
+            if nonzero_loads:
+                load_names = ", ".join(sorted(nonzero_loads))
+                raise RuntimeError(
+                    "Modal analysis does not support scripted external loads. "
+                    f"Remove loads from case '{case_name}' for keys: {load_names}."
+                )
+
     def _requires_strict_case_selection(self, request: FEARequest) -> bool:
         if len(request.load_cases) != 1:
             return bool(request.load_cases)
@@ -1469,6 +1667,14 @@ class TacsFEABackend(FEABackend):
             return float(value)
         return None
 
+    def _extract_frequencies_hz(self, eigenvalues: list[float]) -> list[float]:
+        return modal_eigenvalues_to_frequencies_hz(eigenvalues)
+
+    def _extract_critical_frequency_hz(self, frequencies_hz: list[float]) -> float | None:
+        for value in frequencies_hz:
+            return float(value)
+        return None
+
     def _select_case_name_by_metric(
         self,
         case_analyses: dict[str, dict[str, Any]],
@@ -1512,6 +1718,10 @@ class TacsFEABackend(FEABackend):
         if hasattr(problem, "addFunction"):
             problem.addFunction("mass", functions.StructuralMass)
             problem.addFunction("ks_vmfailure", functions.KSFailure, ksWeight=100.0)
+
+    def _add_mass_function(self, problem: Any, functions: Any) -> None:
+        if hasattr(problem, "addFunction"):
+            problem.addFunction("mass", functions.StructuralMass)
 
     def _extract_failure_index(self, function_values: dict[str, float]) -> float | None:
         for name, value in function_values.items():

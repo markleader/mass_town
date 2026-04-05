@@ -160,6 +160,8 @@ class WorkflowEngine:
             "analysis_type": state.analysis_state.analysis_type,
             "eigenvalues": state.analysis_state.eigenvalues,
             "critical_eigenvalue": state.analysis_state.critical_eigenvalue,
+            "frequencies_hz": state.analysis_state.frequencies_hz,
+            "critical_frequency_hz": state.analysis_state.critical_frequency_hz,
             "critical_buckling_load_factor": (
                 state.analysis_state.critical_eigenvalue
                 if state.analysis_state.analysis_type == "buckling"
@@ -168,6 +170,16 @@ class WorkflowEngine:
             "buckling_load_factors": (
                 state.analysis_state.eigenvalues
                 if state.analysis_state.analysis_type == "buckling"
+                else []
+            ),
+            "critical_natural_frequency_hz": (
+                state.analysis_state.critical_frequency_hz
+                if state.analysis_state.analysis_type == "modal"
+                else None
+            ),
+            "natural_frequencies_hz": (
+                state.analysis_state.frequencies_hz
+                if state.analysis_state.analysis_type == "modal"
                 else []
             ),
             "worst_case_name": state.analysis_state.worst_case_name,

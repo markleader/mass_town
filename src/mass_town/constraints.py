@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from math import exp, log
+from math import exp, log, pi, sqrt
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -40,6 +40,7 @@ class ConstraintSet(BaseModel):
     max_stress: float | None = None
     aggregated_stress: AggregatedStressConstraint | None = None
     minimum_buckling_load_factor: MinimumEigenvalueConstraint | None = None
+    minimum_natural_frequency_hz: MinimumEigenvalueConstraint | None = None
 
     def __getitem__(self, key: str) -> object:
         return getattr(self, key)
@@ -47,7 +48,7 @@ class ConstraintSet(BaseModel):
     def __setitem__(self, key: str, value: object) -> None:
         if key == "aggregated_stress" and value is not None:
             value = AggregatedStressConstraint.model_validate(value)
-        if key == "minimum_buckling_load_factor" and value is not None:
+        if key in {"minimum_buckling_load_factor", "minimum_natural_frequency_hz"} and value is not None:
             value = MinimumEigenvalueConstraint.model_validate(value)
         setattr(self, key, value)
 
@@ -188,6 +189,34 @@ def evaluate_minimum_buckling_load_factor_constraint(
         case_eigenvalues,
         constraint,
         quantity="buckling_load_factor",
+    )
+
+
+def modal_eigenvalue_to_frequency_hz(eigenvalue: float) -> float:
+    return sqrt(max(float(eigenvalue), 0.0)) / (2.0 * pi)
+
+
+def modal_eigenvalues_to_frequencies_hz(
+    eigenvalues: list[float] | tuple[float, ...],
+) -> list[float]:
+    return [modal_eigenvalue_to_frequency_hz(value) for value in eigenvalues]
+
+
+def evaluate_minimum_natural_frequency_constraint(
+    case_eigenvalues: Mapping[str, list[float] | tuple[float, ...]],
+    constraint: MinimumEigenvalueConstraint | None,
+) -> EigenvalueConstraintResult | None:
+    if constraint is None:
+        return None
+
+    case_frequencies = {
+        case_name: modal_eigenvalues_to_frequencies_hz(eigenvalues)
+        for case_name, eigenvalues in case_eigenvalues.items()
+    }
+    return evaluate_minimum_eigenvalue_constraint(
+        case_frequencies,
+        constraint,
+        quantity="natural_frequency_hz",
     )
 
 

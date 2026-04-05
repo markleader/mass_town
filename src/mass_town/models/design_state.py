@@ -36,9 +36,11 @@ class LoadCaseAnalysisState(BaseModel):
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
-    analysis_type: Literal["static", "buckling"] = "static"
+    analysis_type: Literal["static", "buckling", "modal"] = "static"
     eigenvalues: list[float] = Field(default_factory=list)
     critical_eigenvalue: float | None = None
+    frequencies_hz: list[float] = Field(default_factory=list)
+    critical_frequency_hz: float | None = None
     passed: bool = False
     analysis_seconds: float | None = None
 
@@ -49,9 +51,11 @@ class AnalysisState(BaseModel):
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
-    analysis_type: Literal["static", "buckling"] = "static"
+    analysis_type: Literal["static", "buckling", "modal"] = "static"
     eigenvalues: list[float] = Field(default_factory=list)
     critical_eigenvalue: float | None = None
+    frequencies_hz: list[float] = Field(default_factory=list)
+    critical_frequency_hz: float | None = None
     passed: bool = False
     load_cases: dict[str, LoadCaseAnalysisState] = Field(default_factory=dict)
     worst_case_name: str | None = None

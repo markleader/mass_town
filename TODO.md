@@ -130,10 +130,11 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 2.3 Modal / dynamic analysis
 
-* [ ] Add modal analysis support.
-* [ ] Define frequency constraints in the optimization interface.
-* [ ] Create a frequency-constrained structural example.
-* [ ] Decide whether transient dynamics belongs in the initial roadmap or should wait.
+* [x] Add modal analysis support.
+* [x] Define frequency constraints in the optimization interface.
+* [x] Create a frequency-constrained structural example.
+* [x] Decide whether transient dynamics belongs in the initial roadmap or should wait.
+  * Decision: wait on transient dynamics until after the initial modal/frequency workflow is stable.
 
 ### Deliverables
 

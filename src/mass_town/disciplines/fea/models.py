@@ -26,15 +26,30 @@ class FEABucklingSetup(BaseModel):
         return self
 
 
+class FEAModalSetup(BaseModel):
+    sigma: float = 100.0
+    num_eigenvalues: int = 5
+
+    @model_validator(mode="after")
+    def _validate_parameters(self) -> "FEAModalSetup":
+        if self.sigma <= 0.0:
+            raise ValueError("modal setup sigma must be positive.")
+        if self.num_eigenvalues <= 0:
+            raise ValueError("modal setup num_eigenvalues must be positive.")
+        return self
+
+
 class FEALoadCaseResult(BaseModel):
     passed: bool
     result_files: list[Path] = Field(default_factory=list)
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
-    analysis_type: Literal["static", "buckling"] = "static"
+    analysis_type: Literal["static", "buckling", "modal"] = "static"
     eigenvalues: list[float] = Field(default_factory=list)
     critical_eigenvalue: float | None = None
+    frequencies_hz: list[float] = Field(default_factory=list)
+    critical_frequency_hz: float | None = None
     metadata: dict[str, str | float | int | bool] = Field(default_factory=dict)
     log_path: Path | None = None
     analysis_seconds: float | None = None
@@ -55,10 +70,11 @@ class FEARequest(BaseModel):
     constraints: ConstraintSet = Field(default_factory=ConstraintSet)
     allowable_stress: float
     case_name: str = "static"
-    analysis_type: Literal["static", "buckling"] = "static"
+    analysis_type: Literal["static", "buckling", "modal"] = "static"
     load_cases: dict[str, FEALoadCase] = Field(default_factory=dict)
     write_solution: bool = True
     buckling_setup: FEABucklingSetup | None = None
+    modal_setup: FEAModalSetup | None = None
     shell_setup: FEAShellSetup | None = None
     solid_setup: FEASolidSetup | None = None
 
@@ -69,9 +85,11 @@ class FEAResult(BaseModel):
     mass: float | None = None
     max_stress: float | None = None
     displacement_norm: float | None = None
-    analysis_type: Literal["static", "buckling"] = "static"
+    analysis_type: Literal["static", "buckling", "modal"] = "static"
     eigenvalues: list[float] = Field(default_factory=list)
     critical_eigenvalue: float | None = None
+    frequencies_hz: list[float] = Field(default_factory=list)
+    critical_frequency_hz: float | None = None
     result_files: list[Path] = Field(default_factory=list)
     metadata: dict[str, str | float | int | bool] = Field(default_factory=dict)
     log_path: Path | None = None

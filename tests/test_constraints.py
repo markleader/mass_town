@@ -1,9 +1,13 @@
+from math import pi
+
 import pytest
 
 from mass_town.constraints import (
     ConstraintSet,
     aggregate_case_stresses,
     evaluate_minimum_buckling_load_factor_constraint,
+    evaluate_minimum_natural_frequency_constraint,
+    modal_eigenvalue_to_frequency_hz,
 )
 
 
@@ -137,3 +141,30 @@ def test_minimum_buckling_load_factor_can_pass_on_higher_mode() -> None:
     assert result.value == pytest.approx(4.2)
     assert result.controlling_case == "maneuver"
     assert result.passed is True
+
+
+def test_modal_eigenvalue_to_frequency_hz_converts_from_radians_per_second() -> None:
+    assert modal_eigenvalue_to_frequency_hz((2.0 * pi * 5.0) ** 2) == pytest.approx(5.0)
+
+
+def test_minimum_natural_frequency_uses_requested_mode_and_controlling_case() -> None:
+    result = evaluate_minimum_natural_frequency_constraint(
+        {
+            "gust": [(2.0 * pi * 12.0) ** 2, (2.0 * pi * 18.0) ** 2],
+            "maneuver": [(2.0 * pi * 8.0) ** 2, (2.0 * pi * 16.0) ** 2],
+        },
+        ConstraintSet.model_validate(
+            {
+                "minimum_natural_frequency_hz": {
+                    "mode": 0,
+                    "minimum": 10.0,
+                }
+            }
+        ).minimum_natural_frequency_hz,
+    )
+
+    assert result is not None
+    assert result.quantity == "natural_frequency_hz"
+    assert result.value == pytest.approx(8.0)
+    assert result.controlling_case == "maneuver"
+    assert result.passed is False

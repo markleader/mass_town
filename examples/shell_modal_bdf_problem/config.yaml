@@ -1,0 +1,23 @@
+max_iterations: 4
+allowable_stress: 3000000000.0
+fea:
+  tool: tacs
+  model_input_path: inputs/model/plate.bdf
+  case_name: cantilever_plate
+  analysis_type: modal
+  write_solution: true
+  modal_setup:
+    sigma: 2000.0
+    num_eigenvalues: 5
+design_variables:
+  - id: thickness
+    name: Plate Thickness
+    type: scalar_thickness
+    initial_value: 0.01
+    bounds:
+      lower: 0.002
+      upper: 0.05
+    units: m
+    active: true
+initial_tasks:
+  - fea

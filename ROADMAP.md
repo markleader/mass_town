@@ -140,9 +140,11 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 * Solid cantilever benchmark (`examples/solid_cantilever_problem`)
 * Linear buckling analysis support
 * BDF-first shell buckling example (`examples/shell_buckling_bdf_problem`)
+* BDF-first shell modal example (`examples/shell_modal_bdf_problem`)
 * Shell-vs-solid comparison benchmark (`examples/shell_cantilever_problem`)
 * Buckling analysis
 * Modal/frequency analysis
+* Defer transient dynamics until the modal/frequency workflow and reporting contract are stable
 
 **Outcome:** Multiple physics modes using a shared infrastructure
 

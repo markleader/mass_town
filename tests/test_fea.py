@@ -1,4 +1,5 @@
 import json
+from math import pi
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -176,12 +177,24 @@ class FakeBucklingProblem(FakeProblem):
             values[f"{self.case_name}_eigsb.{mode}"] = value
 
 
+class FakeModalProblem(FakeProblem):
+    def __init__(self, case_name: str, eigenvalues: list[float] | None = None) -> None:
+        super().__init__()
+        self.case_name = case_name
+        self.eigenvalues = list(eigenvalues or [(2.0 * pi * 8.0) ** 2, (2.0 * pi * 12.0) ** 2])
+
+    def evalFunctions(self, values: dict[str, float]) -> None:
+        for mode, value in enumerate(self.eigenvalues):
+            values[f"{self.case_name}_eigsm.{mode}"] = value
+
+
 class FakeAssembler:
     def __init__(self, bdf_info: object) -> None:
         self.bdf_info = bdf_info
         self.problem = FakeProblem()
         self.problems: dict[str, FakeProblem] = {}
         self.buckling_problems: dict[str, FakeBucklingProblem] = {}
+        self.modal_problems: dict[str, FakeModalProblem] = {}
         self.initialized = False
 
     def initialize(self, callback: object | None = None) -> None:
@@ -205,6 +218,20 @@ class FakeAssembler:
         del sigma
         problem = FakeBucklingProblem(case_name, [float(index + 1) for index in range(numEigs)])
         self.buckling_problems[case_name] = problem
+        return problem
+
+    def createModalProblem(
+        self,
+        case_name: str,
+        sigma: float,
+        numEigs: int,
+    ) -> FakeModalProblem:
+        del sigma
+        problem = FakeModalProblem(
+            case_name,
+            [(2.0 * pi * float(index + 1)) ** 2 for index in range(numEigs)],
+        )
+        self.modal_problems[case_name] = problem
         return problem
 
 
@@ -394,6 +421,27 @@ def test_config_parses_buckling_settings() -> None:
     assert config.fea.buckling_setup is not None
     assert config.fea.buckling_setup.sigma == 5.0
     assert config.fea.buckling_setup.num_eigenvalues == 4
+
+
+def test_config_parses_modal_settings() -> None:
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "analysis_type": "modal",
+                "modal_setup": {
+                    "sigma": 20.0,
+                    "num_eigenvalues": 6,
+                },
+            }
+        }
+    )
+
+    assert config.fea.analysis_type == "modal"
+    assert config.fea.modal_setup is not None
+    assert config.fea.modal_setup.sigma == 20.0
+    assert config.fea.modal_setup.num_eigenvalues == 6
 
 
 def test_config_parses_shell_setup_settings() -> None:
@@ -790,6 +838,110 @@ def test_fea_agent_uses_minimum_buckling_load_factor_for_pass_fail(
     assert minimum_buckling["controlling_case"] == "maneuver"
 
 
+def test_fea_agent_uses_minimum_natural_frequency_for_pass_fail(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+
+    class ModalStubFEABackend(FEABackend):
+        name = "tacs"
+
+        def is_available(self) -> bool:
+            return True
+
+        def availability_reason(self) -> str | None:
+            return None
+
+        def run_analysis(self, request: FEARequest) -> FEAResult:
+            summary_path = request.report_directory / "modal-fea.json"
+            summary_path.write_text('{"worst_case_name": "maneuver"}\n')
+            load_cases = {
+                "gust": FEALoadCaseResult(
+                    passed=True,
+                    result_files=[request.report_directory / "gust.json"],
+                    mass=20.0,
+                    analysis_type="modal",
+                    eigenvalues=[(2.0 * pi * 12.0) ** 2, (2.0 * pi * 18.0) ** 2],
+                    critical_eigenvalue=(2.0 * pi * 12.0) ** 2,
+                    frequencies_hz=[12.0, 18.0],
+                    critical_frequency_hz=12.0,
+                    analysis_seconds=0.4,
+                ),
+                "maneuver": FEALoadCaseResult(
+                    passed=True,
+                    result_files=[request.report_directory / "maneuver.json"],
+                    mass=20.0,
+                    analysis_type="modal",
+                    eigenvalues=[(2.0 * pi * 8.0) ** 2, (2.0 * pi * 16.0) ** 2],
+                    critical_eigenvalue=(2.0 * pi * 8.0) ** 2,
+                    frequencies_hz=[8.0, 16.0],
+                    critical_frequency_hz=8.0,
+                    analysis_seconds=0.6,
+                ),
+            }
+            for case_result in load_cases.values():
+                case_result.result_files[0].write_text('{"ok": true}\n')
+            return FEAResult(
+                backend_name=self.name,
+                passed=True,
+                mass=20.0,
+                analysis_type="modal",
+                eigenvalues=[(2.0 * pi * 8.0) ** 2, (2.0 * pi * 16.0) ** 2],
+                critical_eigenvalue=(2.0 * pi * 8.0) ** 2,
+                frequencies_hz=[8.0, 16.0],
+                critical_frequency_hz=8.0,
+                result_files=[summary_path, *(case.result_files[0] for case in load_cases.values())],
+                load_cases=load_cases,
+                worst_case_name="maneuver",
+                analysis_seconds=1.0,
+            )
+
+    backend = ModalStubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "analysis_type": "modal",
+            }
+        }
+    )
+    state = DesignState(
+        run_id="modal-run",
+        problem_name="structural",
+        load_cases={
+            "gust": {"loads": {}},
+            "maneuver": {"loads": {}},
+        },
+        constraints={
+            "minimum_natural_frequency_hz": {
+                "mode": 0,
+                "minimum": 10.0,
+            },
+        },
+    )
+
+    result = FEAAgent().run(state, config, tmp_path)
+
+    assert result.status == "failure"
+    assert result.diagnostics[0].code == "analysis.minimum_natural_frequency_not_met"
+    assert result.updates["analysis_state"]["analysis_type"] == "modal"
+    assert result.updates["analysis_state"]["critical_frequency_hz"] == pytest.approx(8.0)
+    assert result.updates["analysis_state"]["frequencies_hz"] == pytest.approx([8.0, 16.0])
+    assert result.updates["analysis_state"]["worst_case_name"] == "maneuver"
+    minimum_frequency = result.updates["analysis_state"]["eigenvalue_constraints"][
+        "minimum_natural_frequency_hz"
+    ]
+    assert minimum_frequency["quantity"] == "natural_frequency_hz"
+    assert minimum_frequency["minimum"] == 10.0
+    assert minimum_frequency["value"] == pytest.approx(8.0)
+    assert minimum_frequency["controlling_case"] == "maneuver"
+
+
 def test_fea_agent_forwards_shell_setup(monkeypatch, tmp_path: Path) -> None:
     model_path = tmp_path / "analysis" / "model.bdf"
     model_path.parent.mkdir(parents=True)
@@ -858,6 +1010,36 @@ def test_fea_agent_forwards_buckling_settings(monkeypatch, tmp_path: Path) -> No
     assert backend.last_request.buckling_setup is not None
     assert backend.last_request.buckling_setup.sigma == 6.0
     assert backend.last_request.buckling_setup.num_eigenvalues == 3
+
+
+def test_fea_agent_forwards_modal_settings(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    backend = StubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "analysis_type": "modal",
+                "modal_setup": {
+                    "sigma": 15.0,
+                    "num_eigenvalues": 4,
+                },
+            }
+        }
+    )
+
+    result = FEAAgent().run(_base_state(), config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert backend.last_request.analysis_type == "modal"
+    assert backend.last_request.modal_setup is not None
+    assert backend.last_request.modal_setup.sigma == 15.0
+    assert backend.last_request.modal_setup.num_eigenvalues == 4
 
 
 def test_fea_agent_forwards_solid_setup(monkeypatch, tmp_path: Path) -> None:
@@ -1398,6 +1580,73 @@ def test_tacs_backend_runs_shell_buckling_analysis_and_reports_eigenvalues(tmp_p
     )
     assert case_summary["critical_buckling_load_factor"] == pytest.approx(2.4)
     assert "compression_buckling" in assembler.buckling_problems
+
+
+def test_tacs_backend_runs_shell_modal_analysis_and_reports_frequencies(tmp_path: Path) -> None:
+    backend = TacsFEABackend()
+    node_positions, elements = _shell_node_positions_and_elements()
+    bdf_info = FakeBDFInfo(node_positions, elements, spcs={1: object()})
+
+    class ModalAssembler(FakeAssembler):
+        def createModalProblem(
+            self,
+            case_name: str,
+            sigma: float,
+            numEigs: int,
+        ) -> FakeModalProblem:
+            del sigma
+            problem = FakeModalProblem(
+                case_name,
+                [(2.0 * pi * value) ** 2 for value in [9.0, 15.0, 21.0][:numEigs]],
+            )
+            self.modal_problems[case_name] = problem
+            return problem
+
+    assembler = ModalAssembler(bdf_info)
+    model_path = tmp_path / "shell_model.bdf"
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    request = FEARequest(
+        model_input_path=model_path,
+        report_directory=tmp_path / "reports",
+        log_directory=tmp_path / "logs",
+        solution_directory=tmp_path / "solver",
+        run_id="modal-shell",
+        allowable_stress=180.0,
+        analysis_type="modal",
+        modal_setup={
+            "sigma": 25.0,
+            "num_eigenvalues": 3,
+        },
+        load_cases={
+            "cantilever": {"loads": {}},
+        },
+    )
+
+    backend._load_tacs_modules = lambda: (
+        lambda input_bdf: assembler,
+        SimpleNamespace(StructuralMass=object(), KSFailure=object()),
+        SimpleNamespace(),
+        SimpleNamespace(),
+        object,
+    )
+    backend._load_bdf = lambda model_path, bdf_class: bdf_info
+
+    result = backend.run_analysis(request)
+
+    assert result.analysis_type == "modal"
+    assert result.critical_eigenvalue == pytest.approx((2.0 * pi * 9.0) ** 2)
+    assert result.critical_frequency_hz == pytest.approx(9.0)
+    assert result.frequencies_hz == pytest.approx([9.0, 15.0, 21.0])
+    assert result.load_cases["cantilever"].critical_frequency_hz == pytest.approx(9.0)
+    summary = json.loads(result.result_files[0].read_text())
+    assert summary["analysis_type"] == "modal"
+    assert summary["critical_natural_frequency_hz"] == pytest.approx(9.0)
+    assert summary["natural_frequencies_hz"] == pytest.approx([9.0, 15.0, 21.0])
+    case_summary = json.loads(
+        (tmp_path / "reports" / "shell_model.cantilever.tacs.summary.json").read_text()
+    )
+    assert case_summary["critical_natural_frequency_hz"] == pytest.approx(9.0)
+    assert "cantilever_modal" in assembler.modal_problems
 
 
 def test_tacs_backend_writes_aggregation_quality_summary(tmp_path: Path) -> None:
