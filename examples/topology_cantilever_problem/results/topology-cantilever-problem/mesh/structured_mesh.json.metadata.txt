@@ -1,0 +1,3 @@
+name: structured_mesh.json
+kind: topology_artifact
+metadata: {'backend': 'structured_plane_stress'}

@@ -1,0 +1,4 @@
+run_started run_id=topology-cantilever-problem
+iteration=1 task=topology event=start
+iteration=1 task=topology status=failure
+run_finished status=failed iteration_count=1

@@ -64,6 +64,25 @@ class AnalysisState(BaseModel):
     analysis_seconds: float | None = None
 
 
+class TopologyTimingState(BaseModel):
+    mesh_seconds: float | None = None
+    solve_seconds: float | None = None
+    optimization_seconds: float | None = None
+
+
+class TopologyState(BaseModel):
+    backend: str | None = None
+    result_path: str | None = None
+    objective: float | None = None
+    volume_fraction: float | None = None
+    max_density_change: float | None = None
+    beta: float | None = None
+    converged: bool = False
+    iteration_count: int = 0
+    timing: TopologyTimingState = Field(default_factory=TopologyTimingState)
+    failure_reason: str | None = None
+
+
 class DecisionRecord(BaseModel):
     iteration: int
     action: str
@@ -89,6 +108,7 @@ class DesignState(BaseModel):
     geometry_state: GeometryState = Field(default_factory=GeometryState)
     mesh_state: MeshState = Field(default_factory=MeshState)
     analysis_state: AnalysisState = Field(default_factory=AnalysisState)
+    topology_state: TopologyState = Field(default_factory=TopologyState)
     diagnostics: list[Diagnostic] = Field(default_factory=list)
     decision_history: list[DecisionRecord] = Field(default_factory=list)
     artifacts: list[ArtifactRecord] = Field(default_factory=list)

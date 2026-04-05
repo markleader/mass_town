@@ -155,15 +155,18 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 3.1 Core topology optimization infrastructure
 
-* [ ] Define topology design variables at the element level.
+* [ ] Add a dedicated topology workflow mode with a topology-specific state and report contract.
+* [ ] Implement a solver-agnostic topology discipline with an initial structured 2D plane-stress backend.
+* [ ] Represent topology as a density field rather than thousands of thickness-style design-variable entries.
 * [ ] Add density filtering.
 * [ ] Add projection / continuation support.
 * [ ] Define volume-fraction constraints.
 * [ ] Add compliance objective support.
+* [ ] Add one checked-in 2D cantilever topology example plus a regression test.
 
 #### 3.2 Example problems
 
-* [ ] Add a 2D compliance-minimization example.
+* [ ] Expand the initial 2D compliance-minimization example with richer reporting/visualization.
 * [ ] Add a stress-constrained topology example if practical.
 * [ ] Add plots for density field evolution over iterations.
 * [ ] Add convergence summaries and final-design visualization.

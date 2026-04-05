@@ -180,6 +180,17 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 ---
 
+### Phase 5.5 — Advanced topology toolchain
+
+* Unstructured-mesh topology support
+* TACS-backed topology analysis and sensitivities once the density-field interface is mature enough
+* Multi-load-case and stress-constrained topology workflows
+* External/general-purpose optimizer backends for topology beyond OC
+
+**Outcome:** Topology optimization graduates from the Phase 3.1 structured baseline to a more realistic solver/toolchain stack
+
+---
+
 ### Phase 6 — Multidisciplinary coupling
 
 * Introduce a second discipline (thermal or CFD-lite)

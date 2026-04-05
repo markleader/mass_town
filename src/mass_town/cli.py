@@ -29,6 +29,14 @@ def status(
 ) -> None:
     """Show a concise summary of the persisted design state."""
     state = StateManager().load(state_file)
+    if state.topology_state.backend is not None or state.topology_state.iteration_count > 0:
+        typer.echo(
+            f"run_id={state.run_id} status={state.status} "
+            f"objective={state.topology_state.objective} "
+            f"volume_fraction={state.topology_state.volume_fraction} "
+            f"converged={state.topology_state.converged}"
+        )
+        return
     typer.echo(
         f"run_id={state.run_id} status={state.status} "
         f"thickness={state.design_variables.get('thickness')} "

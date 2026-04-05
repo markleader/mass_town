@@ -1,0 +1,119 @@
+run_id: topology-cantilever-problem
+problem_name: topology_cantilever
+status: failed
+iteration: 1
+design_variables: {}
+loads: {}
+load_cases: {}
+constraints:
+  max_stress: null
+  aggregated_stress: null
+  minimum_buckling_load_factor: null
+  minimum_natural_frequency_hz: null
+geometry_state:
+  valid: true
+  notes: internal structured rectangular topology domain
+mesh_state:
+  backend: null
+  mesh_path: null
+  quality: 1.0
+  elements: 0
+analysis_state:
+  backend: null
+  result_path: null
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  analysis_type: static
+  eigenvalues: []
+  critical_eigenvalue: null
+  frequencies_hz: []
+  critical_frequency_hz: null
+  passed: false
+  load_cases: {}
+  worst_case_name: null
+  aggregated_stress: null
+  eigenvalue_constraints: {}
+  analysis_seconds: null
+topology_state:
+  backend: structured_plane_stress
+  result_path: results/topology-cantilever-problem/reports/topology_summary.json
+  objective: 361.9029703548786
+  volume_fraction: 0.395129609141863
+  max_density_change: 0.012297134676006849
+  beta: 2.48832
+  converged: false
+  iteration_count: 50
+  timing:
+    mesh_seconds: 0.0012410409981384873
+    solve_seconds: 0.07233916607219726
+    optimization_seconds: 0.10302112498902716
+  failure_reason: Topology optimization reached the maximum iteration count without
+    meeting the density-change tolerance.
+diagnostics:
+- code: topology.nonconverged
+  message: Topology optimization reached the maximum iteration count without meeting
+    the density-change tolerance.
+  severity: error
+  task: topology
+  details:
+    backend: structured_plane_stress
+decision_history:
+- iteration: 1
+  action: escalate
+  reason: Unhandled failure type.
+artifacts:
+- name: topology-summary
+  path: results/topology-cantilever-problem/reports/topology_summary.json
+  kind: topology_report
+  metadata:
+    backend: structured_plane_stress
+    converged: false
+    objective: 361.9029703548786
+    volume_fraction: 0.395129609141863
+    max_density_change: 0.012297134676006849
+    beta: 2.48832
+    log_path: results/topology-cantilever-problem/logs/topology.log
+    history_path: results/topology-cantilever-problem/reports/topology_history.json
+    density_path: results/topology-cantilever-problem/reports/final_density.json
+    plot_path: results/topology-cantilever-problem/reports/final_density.png
+- name: structured_mesh.json
+  path: results/topology-cantilever-problem/mesh/structured_mesh.json
+  kind: topology_artifact
+  metadata:
+    backend: structured_plane_stress
+- name: topology_history.json
+  path: results/topology-cantilever-problem/reports/topology_history.json
+  kind: topology_artifact
+  metadata:
+    backend: structured_plane_stress
+- name: final_density.json
+  path: results/topology-cantilever-problem/reports/final_density.json
+  kind: topology_artifact
+  metadata:
+    backend: structured_plane_stress
+- name: topology.log
+  path: results/topology-cantilever-problem/logs/topology.log
+  kind: topology_artifact
+  metadata:
+    backend: structured_plane_stress
+- name: final_density.png
+  path: results/topology-cantilever-problem/reports/final_density.png
+  kind: topology_artifact
+  metadata:
+    backend: structured_plane_stress
+- name: run-summary
+  path: results/topology-cantilever-problem/reports/run_summary.json
+  kind: run_summary
+  metadata:
+    status: failed
+    iteration_count: 1
+    feasible: false
+    topology_converged: false
+    worst_case_name: ''
+task_history:
+- iteration: 1
+  task: topology
+  status: failure
+  message: Topology optimization reached the maximum iteration count without meeting
+    the density-change tolerance.

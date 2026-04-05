@@ -1,0 +1,63 @@
+{
+  "artifact_paths": {
+    "density": "examples/topology_cantilever_problem/results/topology-cantilever-problem/reports/final_density.json",
+    "history": "examples/topology_cantilever_problem/results/topology-cantilever-problem/reports/topology_history.json",
+    "log": "examples/topology_cantilever_problem/results/topology-cantilever-problem/logs/topology.log",
+    "mesh": "examples/topology_cantilever_problem/results/topology-cantilever-problem/mesh/structured_mesh.json",
+    "plot": "examples/topology_cantilever_problem/results/topology-cantilever-problem/reports/final_density.png"
+  },
+  "backend": "structured_plane_stress",
+  "beta": 2.48832,
+  "config_snapshot": {
+    "boundary": {
+      "fixed_boundary": "min_x"
+    },
+    "domain": {
+      "lx": 3.0,
+      "ly": 1.0,
+      "nelx": 30,
+      "nely": 10
+    },
+    "filter": {
+      "radius": 1.5
+    },
+    "load": {
+      "dof": "y",
+      "magnitude": -1.0,
+      "node_selector": "max_x_mid"
+    },
+    "material": {
+      "density_min": 0.001,
+      "poisson_ratio": 0.3,
+      "simp_penalization": 3.0,
+      "youngs_modulus": 1.0
+    },
+    "optimizer": {
+      "change_tolerance": 0.01,
+      "max_iterations": 50,
+      "move_limit": 0.2
+    },
+    "projection": {
+      "beta": 1.0,
+      "beta_max": 8.0,
+      "beta_scale": 1.2,
+      "enabled": true,
+      "eta": 0.5,
+      "update_interval": 10
+    },
+    "tool": "structured_plane_stress",
+    "volume_fraction": 0.4,
+    "write_density_plot": true
+  },
+  "converged": false,
+  "failure_reason": "Topology optimization reached the maximum iteration count without meeting the density-change tolerance.",
+  "iteration_count": 50,
+  "max_density_change": 0.012297134676006849,
+  "objective": 361.9029703548786,
+  "timing": {
+    "mesh_seconds": 0.0012410409981384873,
+    "optimization_seconds": 0.10302112498902716,
+    "solve_seconds": 0.07233916607219726
+  },
+  "volume_fraction": 0.395129609141863
+}

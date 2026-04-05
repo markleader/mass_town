@@ -1,0 +1,3 @@
+name: topology-summary
+kind: topology_report
+metadata: {'backend': 'structured_plane_stress', 'converged': False, 'objective': 361.9029703548786, 'volume_fraction': 0.395129609141863, 'max_density_change': 0.012297134676006849, 'beta': 2.48832, 'log_path': 'results/topology-cantilever-problem/logs/topology.log', 'history_path': 'results/topology-cantilever-problem/reports/topology_history.json', 'density_path': 'results/topology-cantilever-problem/reports/final_density.json', 'plot_path': 'results/topology-cantilever-problem/reports/final_density.png'}

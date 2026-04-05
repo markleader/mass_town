@@ -21,11 +21,12 @@ agents, and persists the evolving design state to disk.
 
 ## Pixi environments
 
-This repository uses three Pixi environments:
+This repository uses four Pixi environments:
 
 - `default`: lightweight core development and tests
 - `mdao`: `default` plus OpenMDAO support
 - `fea`: `mdao` plus FEA-oriented tasks and local TACS wiring
+- `topopt`: topology-oriented numerical and plotting dependencies
 
 Pixi environments are selected one at a time. They are not mixed at runtime.
 Use `pixi run -e <env> ...` or `pixi shell -e <env>` explicitly.
@@ -62,6 +63,15 @@ pixi run -e fea test-shell-buckling-bdf-example
 pixi run -e fea test-shell-modal-bdf-example
 ```
 
+The checked-in topology baseline lives in `topopt`:
+
+```bash
+pixi install -e topopt
+pixi run -e topopt run-topology-example
+pixi run -e topopt test-topology
+pixi run -e topopt test-topology-example
+```
+
 TACS local wiring is intentionally explicit and local-only. The repository does
 not assume TACS is available automatically:
 
@@ -84,6 +94,7 @@ your checkout is elsewhere.
 - `examples/shell_modal_bdf_problem/`: BDF-first shell modal example with a minimum natural frequency constraint
 - `examples/solid_cantilever_problem/`: STEP-driven 3D solid cantilever benchmark
 - `examples/shell_cantilever_problem/`: shell companion benchmark using the same cantilever STEP geometry
+- `examples/topology_cantilever_problem/`: structured 2D plane-stress topology optimization baseline
 - `tests/`: unit tests for the core orchestration and CLI
 
 Example projects now follow a canonical Phase 0 layout:
@@ -94,6 +105,10 @@ Example projects now follow a canonical Phase 0 layout:
 - `results/<run_id>/mesh`: generated `.msh` / `.bdf` artifacts
 - `results/<run_id>/solver`: solver-native outputs such as `.f5`
 - `results/<run_id>/reports`: normalized summaries, including `run_summary.json`
+
+The topology example uses the same `results/<run_id>/...` layout but writes
+structured mesh metadata to `mesh/` and density-history/report artifacts to
+`reports/`.
 
 The multi-case shell sizing example also writes
 `results/<run_id>/reports/stress_aggregation_summary.json`, which compares the

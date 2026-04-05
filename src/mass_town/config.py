@@ -11,6 +11,7 @@ from mass_town.design_variables import (
 from mass_town.disciplines.fea.models import FEABucklingSetup, FEAModalSetup
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 from mass_town.disciplines.fea.solid_setup import FEASolidSetup
+from mass_town.disciplines.topology import TopologyConfig
 
 
 class MeshingConfig(BaseModel):
@@ -43,6 +44,7 @@ class WorkflowConfig(BaseModel):
     allowable_stress: float = 180.0
     meshing: MeshingConfig = Field(default_factory=MeshingConfig)
     fea: FEAConfig = Field(default_factory=FEAConfig)
+    topology: TopologyConfig | None = None
     design_variables: list[DesignVariableDefinition] = Field(default_factory=list)
     initial_tasks: list[str] = Field(
         default_factory=lambda: ["geometry", "mesh", "fea", "optimizer"]

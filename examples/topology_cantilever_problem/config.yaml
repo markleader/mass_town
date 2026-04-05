@@ -1,0 +1,36 @@
+max_iterations: 2
+topology:
+  tool: structured_plane_stress
+  volume_fraction: 0.4
+  domain:
+    nelx: 30
+    nely: 10
+    lx: 3.0
+    ly: 1.0
+  material:
+    youngs_modulus: 1.0
+    poisson_ratio: 0.3
+    simp_penalization: 3.0
+    density_min: 0.001
+  load:
+    node_selector: max_x_mid
+    dof: y
+    magnitude: -1.0
+  boundary:
+    fixed_boundary: min_x
+  filter:
+    radius: 1.5
+  projection:
+    enabled: true
+    beta: 1.0
+    beta_max: 8.0
+    eta: 0.5
+    beta_scale: 1.2
+    update_interval: 10
+  optimizer:
+    max_iterations: 60
+    change_tolerance: 0.015
+    move_limit: 0.2
+  write_density_plot: true
+initial_tasks:
+  - topology

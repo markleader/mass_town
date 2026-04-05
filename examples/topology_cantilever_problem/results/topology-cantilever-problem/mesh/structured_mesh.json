@@ -1,0 +1,9 @@
+{
+  "lx": 3.0,
+  "ly": 1.0,
+  "mesh_type": "structured_quad",
+  "nelx": 30,
+  "nely": 10,
+  "num_elements": 300,
+  "num_nodes": 341
+}

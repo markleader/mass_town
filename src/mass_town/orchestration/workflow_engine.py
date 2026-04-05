@@ -6,6 +6,7 @@ from mass_town.agents.fea_agent import FEAAgent
 from mass_town.agents.geometry_agent import GeometryAgent
 from mass_town.agents.mesh_agent import MeshAgent
 from mass_town.agents.optimizer_agent import OptimizerAgent
+from mass_town.agents.topology_agent import TopologyAgent
 from mass_town.config import WorkflowConfig
 from mass_town.design_variables import resolved_design_variable_definitions
 from mass_town.models.artifacts import ArtifactRecord
@@ -40,6 +41,7 @@ class WorkflowEngine:
             "mesh": MeshAgent(),
             "fea": FEAAgent(),
             "optimizer": OptimizerAgent(),
+            "topology": TopologyAgent(),
         }
 
     def run(self, state_path: Path, run_root: Path) -> DesignState:
@@ -76,7 +78,10 @@ class WorkflowEngine:
             self.state_manager.save(state, state_path)
 
         if state.status != "failed":
-            state.status = "recovered" if state.analysis_state.passed else "failed"
+            if self.config.topology is not None:
+                state.status = "recovered" if state.topology_state.converged else "failed"
+            else:
+                state.status = "recovered" if state.analysis_state.passed else "failed"
         summary_path = self._write_run_summary(state, run_root)
         self._record_run_summary_artifact(state, summary_path, run_root)
         self.artifact_store.record(run_root, state, [state.artifacts[-1]])
@@ -107,6 +112,12 @@ class WorkflowEngine:
             state.analysis_state = state.analysis_state.__class__.model_validate(
                 merged_analysis_state
             )
+        if "topology_state" in result.updates:
+            merged_topology_state = state.topology_state.model_dump(mode="python")
+            merged_topology_state.update(result.updates["topology_state"])
+            state.topology_state = state.topology_state.__class__.model_validate(
+                merged_topology_state
+            )
         if "design_variables" in result.updates:
             state.design_variables = dict(result.updates["design_variables"])
 
@@ -129,9 +140,19 @@ class WorkflowEngine:
     def _write_run_summary(self, state: DesignState, run_root: Path) -> Path:
         layout = ensure_run_layout(run_root, state.run_id)
         summary_path = layout.reports_dir / "run_summary.json"
-        definitions = resolved_design_variable_definitions(
-            self.config.design_variables,
-            state.design_variables,
+        topology_mode = self.config.topology is not None
+        feasible = (
+            state.status == "recovered" and state.topology_state.converged
+            if topology_mode
+            else state.status == "recovered" and state.analysis_state.passed
+        )
+        definitions = (
+            []
+            if topology_mode and not self.config.design_variables
+            else resolved_design_variable_definitions(
+                self.config.design_variables,
+                state.design_variables,
+            )
         )
         active_design_variables = {
             definition.id: state.design_variables.get(definition.id, definition.initial_value)
@@ -141,6 +162,16 @@ class WorkflowEngine:
         latest_mesh_path = state.mesh_state.mesh_path
         analysis_log_path = self._latest_artifact_metadata_value(state, "fea-summary", "log_path")
         mesh_log_path = self._latest_artifact_metadata_value(state, "mesh-output", "log_path")
+        topology_log_path = self._latest_artifact_metadata_value(state, "topology-summary", "log_path")
+        topology_history_path = self._latest_artifact_metadata_value(
+            state, "topology-summary", "history_path"
+        )
+        topology_density_path = self._latest_artifact_metadata_value(
+            state, "topology-summary", "density_path"
+        )
+        topology_plot_path = self._latest_artifact_metadata_value(
+            state, "topology-summary", "plot_path"
+        )
         load_case_results = {
             case_name: case_state.model_dump(mode="json")
             for case_name, case_state in state.analysis_state.load_cases.items()
@@ -149,7 +180,7 @@ class WorkflowEngine:
             "run_id": state.run_id,
             "problem_name": state.problem_name,
             "status": state.status,
-            "feasible": state.status == "recovered" and state.analysis_state.passed,
+            "feasible": feasible,
             "iteration_count": state.iteration,
             "final_thickness": state.design_variables.get("thickness"),
             "design_variables": state.design_variables,
@@ -201,12 +232,29 @@ class WorkflowEngine:
                 "mesh_log": mesh_log_path,
                 "analysis_summary": state.analysis_state.result_path,
                 "analysis_log": analysis_log_path,
+                "topology_summary": state.topology_state.result_path,
+                "topology_log": topology_log_path,
+                "topology_history": topology_history_path,
+                "topology_density": topology_density_path,
+                "topology_plot": topology_plot_path,
                 "aggregation_quality_summary": (
                     state.analysis_state.aggregated_stress.quality_summary_path
                     if state.analysis_state.aggregated_stress is not None
                     else None
                 ),
                 "solver_directory": str(layout.solver_dir.relative_to(run_root)),
+            },
+            "topology": {
+                "backend": state.topology_state.backend,
+                "result_path": state.topology_state.result_path,
+                "objective": state.topology_state.objective,
+                "volume_fraction": state.topology_state.volume_fraction,
+                "max_density_change": state.topology_state.max_density_change,
+                "beta": state.topology_state.beta,
+                "converged": state.topology_state.converged,
+                "iteration_count": state.topology_state.iteration_count,
+                "timing": state.topology_state.timing.model_dump(mode="json"),
+                "failure_reason": state.topology_state.failure_reason,
             },
         }
         summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
@@ -222,7 +270,12 @@ class WorkflowEngine:
                 metadata={
                     "status": state.status,
                     "iteration_count": state.iteration,
-                    "feasible": state.status == "recovered" and state.analysis_state.passed,
+                    "feasible": (
+                        state.status == "recovered" and state.topology_state.converged
+                        if self.config.topology is not None
+                        else state.status == "recovered" and state.analysis_state.passed
+                    ),
+                    "topology_converged": state.topology_state.converged,
                     "worst_case_name": state.analysis_state.worst_case_name or "",
                 },
             )

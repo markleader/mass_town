@@ -36,10 +36,20 @@ test-solid-cantilever-example = "python -m pytest tests/test_solid_cantilever_ex
 test-shell-cantilever-example = "python -m pytest tests/test_shell_cantilever_example.py -q"
 test-shell-vs-solid-cantilever = "python -m pytest tests/test_shell_vs_solid_cantilever_compare.py -q"
 
+[feature.topopt.pypi-dependencies]
+numpy = ">=1.26"
+scipy = ">=1.13"
+matplotlib = ">=3.8"
+
+[feature.topopt.tasks]
+test-topology = "python -m pytest tests/test_topology.py -q"
+test-topology-example = "python -m pytest tests/test_topology.py -q -k example"
+
 [environments]
 default = { features = [] }
 mdao = { features = ["mdao"] }
 fea = { features = ["mdao", "fea"] }
+topopt = { features = ["topopt"] }
 
 [tasks]
 test = "python -m pytest"
@@ -51,4 +61,5 @@ run-shell-buckling-bdf-example = "python -m mass_town.cli run examples/shell_buc
 run-shell-modal-bdf-example = "python -m mass_town.cli run examples/shell_modal_bdf_problem"
 run-solid-cantilever-example = "python -m mass_town.cli run examples/solid_cantilever_problem"
 run-shell-cantilever-example = "python -m mass_town.cli run examples/shell_cantilever_problem"
+run-topology-example = "python -m mass_town.cli run examples/topology_cantilever_problem"
 run-example = "python -m mass_town.cli run examples/simple_structural_problem"

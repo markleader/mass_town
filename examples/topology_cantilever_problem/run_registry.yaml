@@ -1,0 +1,4 @@
+topology-cantilever-problem:
+  status: failed
+  iteration_count: 1
+  summary_path: results/topology-cantilever-problem/reports/run_summary.json

@@ -1,0 +1,3 @@
+name: run-summary
+kind: run_summary
+metadata: {'status': 'failed', 'iteration_count': 1, 'feasible': False, 'topology_converged': False, 'worst_case_name': ''}
