@@ -105,6 +105,7 @@ Example projects now follow a canonical Phase 0 layout:
 - `results/<run_id>/mesh`: generated `.msh` / `.bdf` artifacts
 - `results/<run_id>/solver`: solver-native outputs such as `.f5`
 - `results/<run_id>/reports`: normalized summaries, including `run_summary.json`
+  and the resolved `problem_schema.json`
 
 The topology example uses the same `results/<run_id>/...` layout but writes
 structured mesh metadata to `mesh/` and density-history/report artifacts to
@@ -114,6 +115,30 @@ The multi-case shell sizing example also writes
 `results/<run_id>/reports/stress_aggregation_summary.json`, which compares the
 configured KS or p-norm surrogate against the reported raw per-case maximum
 element stresses.
+
+## Canonical problem schema
+
+MassTown now resolves a canonical `ProblemSchema` before orchestration starts.
+This schema is the normalized problem-definition layer used to describe:
+
+- geometry source or structured topology domain
+- meshing settings
+- model type (`plane_stress`, `shell`, `solid`, or `topology`)
+- materials
+- loads and boundary conditions
+- design variables
+- objectives and constraints
+- optimizer settings and backend hints
+
+The current external project contract remains additive:
+
+- `config.yaml` is still the checked-in workflow input
+- `design_state.yaml` is still the checked-in run seed and persisted execution state
+- `results/<run_id>/reports/problem_schema.json` is the resolved canonical
+  problem definition used internally by the runtime
+
+This keeps existing examples working while separating problem definition from
+run history and making the workflow ready for later MDAO/interface cleanup.
 
 ## Discipline and plugin separation
 

@@ -5,12 +5,12 @@ from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
 from mass_town.disciplines.meshing import (
     MeshingBackendError,
-    MeshingRequest,
     resolve_meshing_backend,
 )
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.models.result import AgentResult, Diagnostic
+from mass_town.problem_schema import ProblemSchemaResolver
 from mass_town.storage.filesystem import ensure_run_layout
 
 logger = logging.getLogger(__name__)
@@ -20,22 +20,18 @@ class MeshAgent(BaseAgent):
     name = "mesh_agent"
     task_name = "mesh"
 
+    def __init__(self) -> None:
+        self.schema_resolver = ProblemSchemaResolver()
+
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         layout = ensure_run_layout(run_root, state.run_id)
-        request = MeshingRequest(
-            geometry_input_path=(
-                run_root / config.meshing.geometry_input_path
-                if config.meshing.geometry_input_path
-                else None
-            ),
+        problem = self.schema_resolver.resolve(config, state, run_root)
+        request = self.schema_resolver.build_meshing_request(
+            problem,
+            state,
+            run_root,
             mesh_directory=layout.mesh_dir,
             log_directory=layout.logs_dir,
-            run_id=state.run_id,
-            mesh_dimension=config.meshing.mesh_dimension,
-            step_face_selector=config.meshing.step_face_selector,
-            volume_element_preference=config.meshing.volume_element_preference,
-            output_format=config.meshing.output_format,
-            target_quality=config.meshing.target_quality,
         )
 
         try:

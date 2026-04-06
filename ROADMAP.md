@@ -173,6 +173,7 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 ### Phase 5 — MDAO structure
 
 * Canonical problem schema
+* Additive migration from `config.yaml` + `design_state.yaml` into a normalized schema artifact without breaking existing examples
 * Graph-based workflow execution (e.g., OpenMDAO or equivalent)
 * Discipline-level separation with clean interfaces
 

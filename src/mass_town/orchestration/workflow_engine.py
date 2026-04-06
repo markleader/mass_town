@@ -8,7 +8,6 @@ from mass_town.agents.mesh_agent import MeshAgent
 from mass_town.agents.optimizer_agent import OptimizerAgent
 from mass_town.agents.topology_agent import TopologyAgent
 from mass_town.config import WorkflowConfig
-from mass_town.design_variables import resolved_design_variable_definitions
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState, TaskRecord
 from mass_town.models.result import AgentResult
@@ -16,6 +15,7 @@ from mass_town.orchestration.chief_engineer import ChiefEngineer
 from mass_town.orchestration.state_manager import StateManager
 from mass_town.orchestration.task_queue import TaskQueue
 from mass_town.orchestration.triage_engine import TriageEngine
+from mass_town.problem_schema import ProblemSchema, ProblemSchemaResolver
 from mass_town.storage.artifact_store import ArtifactStore
 from mass_town.storage.filesystem import ensure_run_layout
 from mass_town.storage.run_registry import RunRegistry
@@ -36,6 +36,7 @@ class WorkflowEngine:
         self.artifact_store = artifact_store or ArtifactStore()
         self.run_registry = run_registry or RunRegistry()
         self.chief_engineer = ChiefEngineer(TriageEngine())
+        self.schema_resolver = ProblemSchemaResolver()
         self.agents = {
             "geometry": GeometryAgent(),
             "mesh": MeshAgent(),
@@ -46,10 +47,12 @@ class WorkflowEngine:
 
     def run(self, state_path: Path, run_root: Path) -> DesignState:
         state = self.state_manager.load(state_path)
+        problem_schema = self.schema_resolver.resolve(self.config, state, run_root)
         layout = ensure_run_layout(run_root, state.run_id)
         queue = TaskQueue(self.config.initial_tasks.copy())
         state.status = "running"
         self.run_registry.start_run(state.run_id, run_root)
+        self._write_problem_schema(problem_schema, run_root, state)
         self._append_workflow_log(layout.root / "logs" / "workflow.log", f"run_started run_id={state.run_id}")
         while not queue.is_empty():
             if state.iteration >= self.config.max_iterations:
@@ -82,7 +85,7 @@ class WorkflowEngine:
                 state.status = "recovered" if state.topology_state.converged else "failed"
             else:
                 state.status = "recovered" if state.analysis_state.passed else "failed"
-        summary_path = self._write_run_summary(state, run_root)
+        summary_path = self._write_run_summary(state, run_root, problem_schema)
         self._record_run_summary_artifact(state, summary_path, run_root)
         self.artifact_store.record(run_root, state, [state.artifacts[-1]])
         self.state_manager.save(state, state_path)
@@ -137,23 +140,33 @@ class WorkflowEngine:
         with path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
-    def _write_run_summary(self, state: DesignState, run_root: Path) -> Path:
+    def _write_problem_schema(
+        self,
+        problem_schema: ProblemSchema,
+        run_root: Path,
+        state: DesignState,
+    ) -> None:
+        layout = ensure_run_layout(run_root, state.run_id)
+        schema_path = layout.reports_dir / "problem_schema.json"
+        schema_path.write_text(
+            json.dumps(problem_schema.model_dump(mode="json"), indent=2, sort_keys=True) + "\n"
+        )
+
+    def _write_run_summary(
+        self,
+        state: DesignState,
+        run_root: Path,
+        problem_schema: ProblemSchema,
+    ) -> Path:
         layout = ensure_run_layout(run_root, state.run_id)
         summary_path = layout.reports_dir / "run_summary.json"
-        topology_mode = self.config.topology is not None
+        topology_mode = problem_schema.model.type == "topology"
         feasible = (
             state.status == "recovered" and state.topology_state.converged
             if topology_mode
             else state.status == "recovered" and state.analysis_state.passed
         )
-        definitions = (
-            []
-            if topology_mode and not self.config.design_variables
-            else resolved_design_variable_definitions(
-                self.config.design_variables,
-                state.design_variables,
-            )
-        )
+        definitions = self.schema_resolver.design_variable_definitions(problem_schema)
         active_design_variables = {
             definition.id: state.design_variables.get(definition.id, definition.initial_value)
             for definition in definitions
@@ -225,7 +238,8 @@ class WorkflowEngine:
             },
             "analysis_seconds": state.analysis_state.analysis_seconds,
             "load_case_results": load_case_results,
-            "allowable_stress": self.config.allowable_stress,
+            "allowable_stress": self.schema_resolver.allowable_stress(problem_schema),
+            "problem_model_type": problem_schema.model.type,
             "artifact_paths": {
                 "workflow_log": str((layout.logs_dir / "workflow.log").relative_to(run_root)),
                 "mesh_model": latest_mesh_path,
@@ -237,6 +251,7 @@ class WorkflowEngine:
                 "topology_history": topology_history_path,
                 "topology_density": topology_density_path,
                 "topology_plot": topology_plot_path,
+                "problem_schema": str((layout.reports_dir / "problem_schema.json").relative_to(run_root)),
                 "aggregation_quality_summary": (
                     state.analysis_state.aggregated_stress.quality_summary_path
                     if state.analysis_state.aggregated_stress is not None

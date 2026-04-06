@@ -7,14 +7,7 @@ from mass_town.constraints import (
     evaluate_minimum_buckling_load_factor_constraint,
     evaluate_minimum_natural_frequency_constraint,
 )
-from mass_town.design_variables import (
-    DesignVariableContext,
-    DesignVariableMappingError,
-    bdf_design_variable_context,
-    map_design_variables_to_analysis,
-    resolved_design_variable_definitions,
-    resolved_design_variable_values,
-)
+from mass_town.design_variables import DesignVariableMappingError
 from mass_town.disciplines.fea import (
     FEABackendError,
     FEALoadCase,
@@ -26,6 +19,7 @@ from mass_town.disciplines.fea import (
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.models.result import AgentResult, Diagnostic
+from mass_town.problem_schema import ProblemSchemaResolver
 from mass_town.storage.filesystem import ensure_run_layout
 
 
@@ -33,32 +27,22 @@ class FEAAgent(BaseAgent):
     name = "fea_agent"
     task_name = "fea"
 
+    def __init__(self) -> None:
+        self.schema_resolver = ProblemSchemaResolver()
+
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         layout = ensure_run_layout(run_root, state.run_id)
+        problem = self.schema_resolver.resolve(config, state, run_root)
         mesh_input_path = run_root / state.mesh_state.mesh_path if state.mesh_state.mesh_path else None
-        model_input_path = (
-            run_root / config.fea.model_input_path if config.fea.model_input_path else None
-        )
-        if model_input_path is None and mesh_input_path is not None and mesh_input_path.suffix.lower() == ".bdf":
-            model_input_path = mesh_input_path
-
-        definitions = resolved_design_variable_definitions(
-            config.design_variables,
-            state.design_variables,
-        )
-        resolved_values = resolved_design_variable_values(definitions, state.design_variables)
-        mapping_context = (
-            bdf_design_variable_context(model_input_path)
-            if model_input_path is not None and model_input_path.suffix.lower() == ".bdf"
-            else bdf_design_variable_context(mesh_input_path)
-            if mesh_input_path is not None and mesh_input_path.suffix.lower() == ".bdf"
-            else DesignVariableContext()
-        )
         try:
-            mapped_design_variables = map_design_variables_to_analysis(
-                definitions,
-                resolved_values,
-                mapping_context,
+            request = self.schema_resolver.build_fea_request(
+                problem,
+                state,
+                run_root,
+                report_directory=layout.reports_dir,
+                log_directory=layout.logs_dir,
+                solution_directory=layout.solver_dir,
+                mesh_input_path=mesh_input_path,
             )
         except DesignVariableMappingError as exc:
             diagnostic = Diagnostic(
@@ -72,29 +56,6 @@ class FEAAgent(BaseAgent):
                 message=diagnostic.message,
                 diagnostics=[diagnostic],
             )
-
-        load_cases = self._normalized_load_cases(state, config)
-        request = FEARequest(
-            model_input_path=model_input_path,
-            mesh_input_path=mesh_input_path,
-            report_directory=layout.reports_dir,
-            log_directory=layout.logs_dir,
-            solution_directory=layout.solver_dir,
-            run_id=state.run_id,
-            loads=state.loads,
-            design_variables=resolved_values,
-            design_variable_assignments=mapped_design_variables,
-            constraints=state.constraints,
-            allowable_stress=config.allowable_stress,
-            case_name=config.fea.case_name,
-            analysis_type=config.fea.analysis_type,
-            load_cases=load_cases,
-            write_solution=config.fea.write_solution,
-            buckling_setup=config.fea.buckling_setup,
-            modal_setup=config.fea.modal_setup,
-            shell_setup=config.fea.shell_setup,
-            solid_setup=config.fea.solid_setup,
-        )
 
         try:
             backend = resolve_fea_backend(config.fea.tool)
@@ -153,7 +114,7 @@ class FEAAgent(BaseAgent):
             )
 
         normalized_case_results = self._normalized_case_results(fea_result, request)
-        ordered_case_names = list(load_cases)
+        ordered_case_names = list(request.load_cases)
         minimum_buckling_load_factor = evaluate_minimum_buckling_load_factor_constraint(
             {
                 case_name: tuple(case_result.eigenvalues)
@@ -207,14 +168,14 @@ class FEAAgent(BaseAgent):
                 for case_name, case_result in normalized_case_results.items()
             },
             request.constraints,
-            config.allowable_stress,
+            request.allowable_stress,
             quality_summary_path=aggregation_quality_summary_path,
         )
 
         metadata = dict(fea_result.metadata)
-        passed = self._all_cases_passed(normalized_case_results, config.allowable_stress)
+        passed = self._all_cases_passed(normalized_case_results, request.allowable_stress)
         if not normalized_case_results and fea_result.max_stress is not None:
-            passed = passed and fea_result.max_stress <= config.allowable_stress
+            passed = passed and fea_result.max_stress <= request.allowable_stress
         if aggregated_stress is not None:
             passed = passed and aggregated_stress.passed
         if minimum_buckling_load_factor is not None:
@@ -336,7 +297,7 @@ class FEAAgent(BaseAgent):
                 "frequencies_hz": list(case_result.frequencies_hz),
                 "critical_frequency_hz": case_result.critical_frequency_hz,
                 "passed": (
-                    self._case_passed(case_result, config.allowable_stress)
+                    self._case_passed(case_result, request.allowable_stress)
                     and self._case_satisfies_minimum_buckling_load_factor(
                         case_result,
                         request.constraints.minimum_buckling_load_factor,
@@ -508,7 +469,7 @@ class FEAAgent(BaseAgent):
                 task=self.task_name,
                 details={
                     "max_stress": round(worst_case_result.max_stress, 3),
-                    "allowable": config.allowable_stress,
+                    "allowable": request.allowable_stress,
                     "backend": fea_result.backend_name,
                     "worst_case_name": worst_case_name or request.case_name,
                 },

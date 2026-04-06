@@ -1,0 +1,40 @@
+{
+  "problem": {
+    "id": "topology_cantilever",
+    "name": "topology_cantilever"
+  },
+  "model": {
+    "type": "topology",
+    "input_source": "structured_domain"
+  },
+  "analysis": {
+    "discipline": "topology",
+    "analysis_type": "topology_compliance",
+    "case_name": "topology_compliance"
+  },
+  "objectives": [
+    {
+      "kind": "minimize_compliance",
+      "response": "topology.objective",
+      "enabled": true,
+      "metadata": {
+        "backend_result_key": "objective"
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "kind": "volume_fraction",
+      "limit": 0.4,
+      "method": null,
+      "source": null,
+      "mode": null,
+      "metadata": {}
+    }
+  ],
+  "execution": {
+    "initial_tasks": [
+      "topology"
+    ]
+  }
+}

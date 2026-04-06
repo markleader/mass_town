@@ -1,0 +1,44 @@
+{
+  "problem": {
+    "id": "simple_structural_problem",
+    "name": "simple_structural_problem"
+  },
+  "model": {
+    "type": "plane_stress",
+    "input_source": "meshed_geometry"
+  },
+  "analysis": {
+    "discipline": "structural",
+    "analysis_type": "static",
+    "case_name": "static"
+  },
+  "objectives": [
+    {
+      "kind": "feasibility",
+      "response": "analysis.constraints",
+      "enabled": true,
+      "metadata": {
+        "optimizer_backend": "mass_town_heuristic",
+        "note": "Current structural optimizer is a placeholder feasibility recovery loop."
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "kind": "max_stress",
+      "limit": 180.0,
+      "method": null,
+      "source": null,
+      "mode": null,
+      "metadata": {}
+    }
+  ],
+  "execution": {
+    "initial_tasks": [
+      "geometry",
+      "mesh",
+      "fea",
+      "optimizer"
+    ]
+  }
+}

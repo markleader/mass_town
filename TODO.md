@@ -155,27 +155,27 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 3.1 Core topology optimization infrastructure
 
-* [ ] Add a dedicated topology workflow mode with a topology-specific state and report contract.
-* [ ] Implement a solver-agnostic topology discipline with an initial structured 2D plane-stress backend.
-* [ ] Represent topology as a density field rather than thousands of thickness-style design-variable entries.
-* [ ] Add density filtering.
-* [ ] Add projection / continuation support.
-* [ ] Define volume-fraction constraints.
-* [ ] Add compliance objective support.
-* [ ] Add one checked-in 2D cantilever topology example plus a regression test.
+* [x] Add a dedicated topology workflow mode with a topology-specific state and report contract.
+* [x] Implement a solver-agnostic topology discipline with an initial structured 2D plane-stress backend.
+* [x] Represent topology as a density field rather than thousands of thickness-style design-variable entries.
+* [x] Add density filtering.
+* [x] Add projection / continuation support.
+* [x] Define volume-fraction constraints.
+* [x] Add compliance objective support.
+* [x] Add one checked-in 2D cantilever topology example plus a regression test.
 
 #### 3.2 Example problems
 
 * [ ] Expand the initial 2D compliance-minimization example with richer reporting/visualization.
 * [ ] Add a stress-constrained topology example if practical.
 * [ ] Add plots for density field evolution over iterations.
-* [ ] Add convergence summaries and final-design visualization.
+* [x] Add convergence summaries and final-design visualization.
 
 #### 3.3 Numerical robustness
 
-* [ ] Define continuation schedules for projection parameters.
+* [x] Define continuation schedules for projection parameters.
 * [ ] Check mesh sensitivity behavior.
-* [ ] Check consistency of gradients under filtering and projection.
+* [x] Check consistency of gradients under filtering and projection.
 
 ### Deliverables
 
@@ -223,7 +223,7 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 5.1 Problem schema
 
-* [ ] Define a canonical problem description format containing:
+* [x] Define a canonical problem description format containing:
   * geometry source
   * meshing settings
   * analysis type
@@ -234,7 +234,7 @@ example layout and emits a normalized `run_summary.json` for regression checks.
   * constraints
   * optimizer settings
 
-* [ ] Ensure the same schema can represent the current baseline example and future problems.
+* [x] Ensure the same schema can represent the current baseline example and future problems.
 
 #### 5.2 Discipline interfaces
 
@@ -409,7 +409,7 @@ Do not use the LLM as the numerical controller. Use it first as a planner that e
 
 * [ ] Add buckling analysis and a buckling-constrained sizing example.
 * [ ] Add a solid-element example.
-* [ ] Define the canonical problem schema.
+* [x] Define the canonical problem schema.
 * [ ] Standardize plugin interfaces.
 
 ### After that

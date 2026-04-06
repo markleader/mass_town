@@ -7,12 +7,12 @@ from mass_town.config import WorkflowConfig
 from mass_town.design_variables import (
     DesignVariableType,
     clamp_design_variable_value,
-    resolved_design_variable_definitions,
     resolved_design_variable_values,
 )
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.models.result import AgentResult
+from mass_town.problem_schema import ProblemSchemaResolver
 
 
 class OptimizerAgent(BaseAgent):
@@ -21,12 +21,11 @@ class OptimizerAgent(BaseAgent):
 
     def __init__(self) -> None:
         self.adapter = OptimizerAdapter()
+        self.schema_resolver = ProblemSchemaResolver()
 
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
-        definitions = resolved_design_variable_definitions(
-            config.design_variables,
-            state.design_variables,
-        )
+        problem = self.schema_resolver.resolve(config, state, run_root)
+        definitions = self.schema_resolver.design_variable_definitions(problem)
         values = resolved_design_variable_values(definitions, state.design_variables)
         next_values = dict(values)
 

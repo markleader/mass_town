@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import json
+
 from typer.testing import CliRunner
 
 from mass_town.cli import app
@@ -29,3 +31,6 @@ def test_cli_run_and_status(monkeypatch, tmp_path: Path) -> None:
     assert "status=recovered" in run_result.stdout
     assert status_result.exit_code == 0
     assert "run_id=cli-run" in status_result.stdout
+    summary = json.loads((project_dir / "results" / "cli-run" / "reports" / "run_summary.json").read_text())
+    assert (project_dir / "results" / "cli-run" / "reports" / "problem_schema.json").exists()
+    assert summary["artifact_paths"]["problem_schema"] == "results/cli-run/reports/problem_schema.json"

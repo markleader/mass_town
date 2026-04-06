@@ -4,18 +4,21 @@ from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
 from mass_town.disciplines.topology import (
     TopologyBackendError,
-    TopologyRequest,
     resolve_topology_backend,
 )
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
 from mass_town.models.result import AgentResult, Diagnostic
+from mass_town.problem_schema import ProblemSchemaResolver
 from mass_town.storage.filesystem import ensure_run_layout
 
 
 class TopologyAgent(BaseAgent):
     name = "topology_agent"
     task_name = "topology"
+
+    def __init__(self) -> None:
+        self.schema_resolver = ProblemSchemaResolver()
 
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         if config.topology is None:
@@ -32,13 +35,14 @@ class TopologyAgent(BaseAgent):
             )
 
         layout = ensure_run_layout(run_root, state.run_id)
-        request = TopologyRequest(
+        problem = self.schema_resolver.resolve(config, state, run_root)
+        request = self.schema_resolver.build_topology_request(
+            problem,
+            state,
             report_directory=layout.reports_dir,
             log_directory=layout.logs_dir,
             mesh_directory=layout.mesh_dir,
             solution_directory=layout.solver_dir,
-            run_id=state.run_id,
-            config=config.topology,
         )
 
         try:
