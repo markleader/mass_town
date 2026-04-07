@@ -2,19 +2,17 @@ from pathlib import Path
 
 from mass_town.agents.base_agent import BaseAgent
 from mass_town.config import WorkflowConfig
-from mass_town.constraints import (
-    aggregate_case_stresses,
-    evaluate_minimum_buckling_load_factor_constraint,
-    evaluate_minimum_natural_frequency_constraint,
-)
 from mass_town.design_variables import DesignVariableMappingError
+from mass_town.disciplines.contracts import read_mesh_to_fea_manifest
 from mass_town.disciplines.fea import (
     FEABackendError,
     FEALoadCase,
     FEALoadCaseResult,
-    FEARequest,
-    FEAResult,
     resolve_fea_backend,
+)
+from mass_town.disciplines.postprocessing import (
+    PostProcessingRequest,
+    StructuralPostProcessingBackend,
 )
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState
@@ -29,11 +27,34 @@ class FEAAgent(BaseAgent):
 
     def __init__(self) -> None:
         self.schema_resolver = ProblemSchemaResolver()
+        self.postprocessor = StructuralPostProcessingBackend()
 
     def run(self, state: DesignState, config: WorkflowConfig, run_root: Path) -> AgentResult:
         layout = ensure_run_layout(run_root, state.run_id)
         problem = self.schema_resolver.resolve(config, state, run_root)
         mesh_input_path = run_root / state.mesh_state.mesh_path if state.mesh_state.mesh_path else None
+        mesh_manifest_path = (
+            run_root / state.mesh_state.mesh_manifest_path
+            if state.mesh_state.mesh_manifest_path
+            else None
+        )
+        mesh_manifest = None
+        if mesh_manifest_path is not None and mesh_manifest_path.exists():
+            try:
+                mesh_manifest = read_mesh_to_fea_manifest(mesh_manifest_path)
+            except ValueError as exc:
+                diagnostic = Diagnostic(
+                    code="analysis.mesh_manifest_invalid",
+                    message=f"Mesh-to-FEA manifest is invalid: {exc}",
+                    task=self.task_name,
+                    details={"mesh_manifest_path": str(mesh_manifest_path)},
+                )
+                return AgentResult(
+                    status="failure",
+                    task=self.task_name,
+                    message=diagnostic.message,
+                    diagnostics=[diagnostic],
+                )
         try:
             request = self.schema_resolver.build_fea_request(
                 problem,
@@ -43,6 +64,8 @@ class FEAAgent(BaseAgent):
                 log_directory=layout.logs_dir,
                 solution_directory=layout.solver_dir,
                 mesh_input_path=mesh_input_path,
+                mesh_manifest_path=mesh_manifest_path,
+                mesh_manifest=mesh_manifest,
             )
         except DesignVariableMappingError as exc:
             diagnostic = Diagnostic(
@@ -113,75 +136,31 @@ class FEAAgent(BaseAgent):
                 diagnostics=[diagnostic],
             )
 
-        normalized_case_results = self._normalized_case_results(fea_result, request)
-        ordered_case_names = list(request.load_cases)
-        minimum_buckling_load_factor = evaluate_minimum_buckling_load_factor_constraint(
-            {
-                case_name: tuple(case_result.eigenvalues)
-                for case_name, case_result in normalized_case_results.items()
-            },
-            request.constraints.minimum_buckling_load_factor,
+        aggregation_quality_summary_path = self._relative_quality_summary_path(
+            fea_result.aggregation_quality_summary_path,
+            run_root,
         )
-        minimum_natural_frequency = evaluate_minimum_natural_frequency_constraint(
-            {
-                case_name: tuple(case_result.eigenvalues)
-                for case_name, case_result in normalized_case_results.items()
-            },
-            request.constraints.minimum_natural_frequency_hz,
+        postprocessing_result = self.postprocessor.process(
+            PostProcessingRequest(
+                fea_request=request,
+                fea_result=fea_result,
+                aggregation_quality_summary_path=aggregation_quality_summary_path,
+            )
         )
-        worst_case_name = self._select_worst_case_name(
-            normalized_case_results,
-            ordered_case_names,
-            analysis_type=request.analysis_type,
-            minimum_buckling_load_factor_case=(
-                minimum_buckling_load_factor.controlling_case
-                if minimum_buckling_load_factor is not None
-                else None
-            ),
-            minimum_natural_frequency_case=(
-                minimum_natural_frequency.controlling_case
-                if minimum_natural_frequency is not None
-                else None
-            ),
-        )
+        normalized_case_results = postprocessing_result.normalized_case_results
+        minimum_buckling_load_factor = postprocessing_result.minimum_buckling_load_factor
+        minimum_natural_frequency = postprocessing_result.minimum_natural_frequency_hz
+        worst_case_name = postprocessing_result.worst_case_name
         worst_case_result = (
             normalized_case_results[worst_case_name]
             if worst_case_name is not None and worst_case_name in normalized_case_results
             else None
         )
-        analysis_seconds = fea_result.analysis_seconds
-        if analysis_seconds is None:
-            case_times = [
-                case_result.analysis_seconds
-                for case_result in normalized_case_results.values()
-                if case_result.analysis_seconds is not None
-            ]
-            if case_times:
-                analysis_seconds = sum(case_times)
-        aggregation_quality_summary_path = self._relative_quality_summary_path(
-            fea_result.aggregation_quality_summary_path,
-            run_root,
-        )
-        aggregated_stress = aggregate_case_stresses(
-            {
-                case_name: case_result.max_stress
-                for case_name, case_result in normalized_case_results.items()
-            },
-            request.constraints,
-            request.allowable_stress,
-            quality_summary_path=aggregation_quality_summary_path,
-        )
+        analysis_seconds = postprocessing_result.analysis_seconds
+        aggregated_stress = postprocessing_result.aggregated_stress
 
         metadata = dict(fea_result.metadata)
-        passed = self._all_cases_passed(normalized_case_results, request.allowable_stress)
-        if not normalized_case_results and fea_result.max_stress is not None:
-            passed = passed and fea_result.max_stress <= request.allowable_stress
-        if aggregated_stress is not None:
-            passed = passed and aggregated_stress.passed
-        if minimum_buckling_load_factor is not None:
-            passed = passed and minimum_buckling_load_factor.passed
-        if minimum_natural_frequency is not None:
-            passed = passed and minimum_natural_frequency.passed
+        passed = postprocessing_result.passed
         metadata.update(
             {
                 "backend": fea_result.backend_name,
@@ -504,90 +483,6 @@ class FEAAgent(BaseAgent):
         return {
             config.fea.case_name: FEALoadCase(loads=dict(state.loads)),
         }
-
-    def _normalized_case_results(
-        self,
-        fea_result: FEAResult,
-        request: FEARequest,
-    ) -> dict[str, FEALoadCaseResult]:
-        if fea_result.load_cases:
-            return dict(fea_result.load_cases)
-        fallback_case_name = next(iter(request.load_cases), request.case_name)
-        return {
-            fallback_case_name: FEALoadCaseResult(
-                passed=fea_result.passed,
-                result_files=list(fea_result.result_files),
-                mass=fea_result.mass,
-                max_stress=fea_result.max_stress,
-                displacement_norm=fea_result.displacement_norm,
-                analysis_type=fea_result.analysis_type,
-                eigenvalues=list(fea_result.eigenvalues),
-                critical_eigenvalue=fea_result.critical_eigenvalue,
-                frequencies_hz=list(fea_result.frequencies_hz),
-                critical_frequency_hz=fea_result.critical_frequency_hz,
-                metadata=dict(fea_result.metadata),
-                log_path=fea_result.log_path,
-                analysis_seconds=fea_result.analysis_seconds,
-            )
-        }
-
-    def _select_worst_case_name(
-        self,
-        case_results: dict[str, FEALoadCaseResult],
-        ordered_case_names: list[str],
-        *,
-        analysis_type: str,
-        minimum_buckling_load_factor_case: str | None = None,
-        minimum_natural_frequency_case: str | None = None,
-    ) -> str | None:
-        candidate_names = [name for name in ordered_case_names if name in case_results]
-        if not candidate_names:
-            candidate_names = list(case_results)
-        if not candidate_names:
-            return None
-
-        if minimum_buckling_load_factor_case in candidate_names:
-            return minimum_buckling_load_factor_case
-        if minimum_natural_frequency_case in candidate_names:
-            return minimum_natural_frequency_case
-
-        best_name: str | None = None
-        if analysis_type in {"buckling", "modal"}:
-            best_eigenvalue: float | None = None
-            for case_name in candidate_names:
-                critical_eigenvalue = case_results[case_name].critical_eigenvalue
-                if critical_eigenvalue is None:
-                    if best_name is None:
-                        best_name = case_name
-                    continue
-                if best_eigenvalue is None or critical_eigenvalue < best_eigenvalue:
-                    best_name = case_name
-                    best_eigenvalue = critical_eigenvalue
-            return best_name or candidate_names[0]
-
-        best_stress: float | None = None
-        for case_name in candidate_names:
-            max_stress = case_results[case_name].max_stress
-            if max_stress is None:
-                if best_name is None:
-                    best_name = case_name
-                continue
-            if best_stress is None or max_stress > best_stress:
-                best_name = case_name
-                best_stress = max_stress
-        return best_name or candidate_names[0]
-
-    def _all_cases_passed(
-        self,
-        case_results: dict[str, FEALoadCaseResult],
-        allowable_stress: float,
-    ) -> bool:
-        if not case_results:
-            return True
-        return all(
-            self._case_passed(case_result, allowable_stress)
-            for case_result in case_results.values()
-        )
 
     def _case_passed(
         self,

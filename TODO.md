@@ -238,15 +238,38 @@ example layout and emits a normalized `run_summary.json` for regression checks.
 
 #### 5.2 Discipline interfaces
 
-* [ ] Standardize plugin interfaces for:
+* [x] Standardize plugin interfaces for:
   * CAD
   * meshing
   * FEA
   * post-processing
   * optimization
 
-* [ ] Separate data-transfer objects from solver-specific implementations.
-* [ ] Define a clean handoff between meshing and FEA, especially around region naming and properties.
+* [x] Separate data-transfer objects from solver-specific implementations.
+* [x] Define a clean handoff between meshing and FEA, especially around region naming and properties.
+
+Phase 5.2 is implemented as a strictly additive architecture step:
+
+* Existing `config.yaml`, `design_state.yaml`, examples, and Pixi tasks remain valid.
+* Shared discipline DTOs define named regions, property assignments, mesh-to-FEA
+  manifests, timing, diagnostics, and optional sensitivities.
+* Named regions are the canonical cross-discipline identifiers; BDF PIDs and
+  `$ REGION` comments remain export/backend compatibility details.
+* The gmsh BDF path writes a mesh-to-FEA manifest, and TACS prefers that
+  manifest for region/PID handoff while retaining the legacy BDF-comment
+  fallback.
+* Post-processing now has an explicit interface and owns the first solver-neutral
+  slice: load-case normalization, worst-case selection, stress aggregation, and
+  eigenvalue constraint interpretation.
+
+Deferred follow-up work:
+
+* Move more summary/report generation out of `FEAAgent` and into
+  post-processing once the first interface slice is stable.
+* Expand backend consumption of core property DTOs beyond the current TACS
+  region/PID mapping bridge.
+* Converge the additive DTO layer with the future MDAO/OpenMDAO graph in Phase
+  5.3 instead of changing public project inputs in Phase 5.2.
 
 #### 5.3 MDAO integration
 

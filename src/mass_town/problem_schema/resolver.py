@@ -15,6 +15,7 @@ from mass_town.design_variables import (
     resolved_design_variable_definitions,
     resolved_design_variable_values,
 )
+from mass_town.disciplines.contracts import MeshToFEAManifest
 from mass_town.disciplines.fea import FEALoadCase, FEARequest
 from mass_town.disciplines.fea.models import FEABucklingSetup, FEAModalSetup
 from mass_town.disciplines.fea.setup_common import FEABoundaryCondition, FEALoad
@@ -96,6 +97,8 @@ class ProblemSchemaResolver:
         log_directory: Path,
         solution_directory: Path,
         mesh_input_path: Path | None,
+        mesh_manifest_path: Path | None = None,
+        mesh_manifest: MeshToFEAManifest | None = None,
     ) -> FEARequest:
         model_input_path = (
             run_root / problem.model.model_input_path
@@ -111,6 +114,8 @@ class ProblemSchemaResolver:
         return FEARequest(
             model_input_path=model_input_path,
             mesh_input_path=mesh_input_path,
+            mesh_manifest_path=mesh_manifest_path,
+            mesh_manifest=mesh_manifest,
             report_directory=report_directory,
             log_directory=log_directory,
             solution_directory=solution_directory,

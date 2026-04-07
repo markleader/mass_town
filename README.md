@@ -150,6 +150,8 @@ Meshing and FEA now use this split directly:
 
 - core meshing orchestration depends on normalized request/result models
 - core FEA orchestration depends on normalized request/result models
+- shared DTOs preserve named regions, property assignment hints, diagnostics,
+  timing, and optional sensitivities across discipline handoffs
 - concrete meshing tools are loaded lazily from `plugins/`
 - concrete FEA tools are loaded lazily from `plugins/`
 - `gmsh` is the first real meshing plugin
@@ -157,6 +159,9 @@ Meshing and FEA now use this split directly:
 - a deterministic `mock` backend keeps tests runnable without `gmsh`
 
 This keeps core MassTown free of hard dependencies on any one meshing or solver tool.
+The Phase 5.2 interface migration is strictly additive: current `config.yaml`,
+`design_state.yaml`, examples, and Pixi tasks remain the public project contract
+while the internal DTO layer prepares later MDAO graph execution.
 
 ## Meshing backends
 
@@ -216,8 +221,13 @@ intended for downstream TACS / pyTACS import. The exporter includes:
 - deterministic `PID` assignment from gmsh physical groups
 - placeholder `PSHELL` / `PSOLID` cards plus a default isotropic `MAT1`
 - `$ REGION ...` metadata comments that preserve gmsh physical names
+- a structured `*.mesh_to_fea_manifest.json` artifact that records named
+  regions, export PIDs, and placeholder property assignments for downstream FEA
 
 Elements without a physical group are exported into an `UNASSIGNED` region.
+Named regions are the canonical MassTown handoff identifiers. PIDs and
+`$ REGION` comments remain BDF/export compatibility details, and TACS still
+falls back to them when no manifest is available.
 Current limitations:
 
 - only gmsh element types `2`, `3`, `4`, and `5` are supported for BDF export

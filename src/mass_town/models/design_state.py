@@ -22,6 +22,7 @@ class GeometryState(BaseModel):
 class MeshState(BaseModel):
     backend: str | None = None
     mesh_path: str | None = None
+    mesh_manifest_path: str | None = None
     quality: float = 0.0
     elements: int = 0
 

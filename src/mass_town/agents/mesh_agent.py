@@ -112,7 +112,28 @@ class MeshAgent(BaseAgent):
                 metadata=metadata,
             )
         ]
+        if meshing_result.mesh_manifest_path is not None:
+            artifacts.append(
+                ArtifactRecord(
+                    name="mesh-to-fea-manifest",
+                    path=str(meshing_result.mesh_manifest_path.relative_to(run_root)),
+                    kind="mesh_to_fea_manifest",
+                    metadata={
+                        "backend": meshing_result.backend_name,
+                        "schema_version": (
+                            meshing_result.mesh_manifest.schema_version
+                            if meshing_result.mesh_manifest is not None
+                            else "mass_town.mesh_to_fea_manifest.v1"
+                        ),
+                    },
+                )
+            )
 
+        mesh_manifest_state_path = (
+            str(meshing_result.mesh_manifest_path.relative_to(run_root))
+            if meshing_result.mesh_manifest_path is not None
+            else None
+        )
         if meshing_result.quality < config.meshing.target_quality:
             diagnostic = Diagnostic(
                 code="mesh.poor_quality",
@@ -138,6 +159,7 @@ class MeshAgent(BaseAgent):
                             if meshing_result.mesh_path is not None
                             else None
                         ),
+                        "mesh_manifest_path": mesh_manifest_state_path,
                         "quality": meshing_result.quality,
                         "elements": meshing_result.element_count,
                     }
@@ -152,13 +174,14 @@ class MeshAgent(BaseAgent):
             updates={
                 "mesh_state": {
                     "backend": meshing_result.backend_name,
-                    "mesh_path": (
-                        str(meshing_result.mesh_path.relative_to(run_root))
-                        if meshing_result.mesh_path is not None
-                        else None
-                    ),
-                    "quality": meshing_result.quality,
-                    "elements": meshing_result.element_count,
-                }
+                        "mesh_path": (
+                            str(meshing_result.mesh_path.relative_to(run_root))
+                            if meshing_result.mesh_path is not None
+                            else None
+                        ),
+                        "mesh_manifest_path": mesh_manifest_state_path,
+                        "quality": meshing_result.quality,
+                        "elements": meshing_result.element_count,
+                    }
             },
         )

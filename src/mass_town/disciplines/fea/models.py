@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from mass_town.constraints import ConstraintSet
 from mass_town.design_variables import DesignVariableAssignments
+from mass_town.disciplines.contracts import MeshToFEAManifest, SensitivityPayload
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 from mass_town.disciplines.fea.solid_setup import FEASolidSetup
 
@@ -58,6 +59,8 @@ class FEALoadCaseResult(BaseModel):
 class FEARequest(BaseModel):
     model_input_path: Path | None = None
     mesh_input_path: Path | None = None
+    mesh_manifest_path: Path | None = None
+    mesh_manifest: MeshToFEAManifest | None = None
     report_directory: Path
     log_directory: Path
     solution_directory: Path
@@ -77,6 +80,7 @@ class FEARequest(BaseModel):
     modal_setup: FEAModalSetup | None = None
     shell_setup: FEAShellSetup | None = None
     solid_setup: FEASolidSetup | None = None
+    sensitivities: list[SensitivityPayload] = Field(default_factory=list)
 
 
 class FEAResult(BaseModel):
@@ -97,3 +101,4 @@ class FEAResult(BaseModel):
     worst_case_name: str | None = None
     aggregation_quality_summary_path: Path | None = None
     analysis_seconds: float | None = None
+    sensitivities: list[SensitivityPayload] = Field(default_factory=list)

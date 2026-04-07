@@ -1073,7 +1073,11 @@ class TacsFEABackend(FEABackend):
             assignments.global_values.get("thickness", request.design_variables.get("thickness", 1.0))
         )
         region_pid_map = (
-            self._parse_region_pid_map(model_input_path, bdf_info)
+            self._parse_region_pid_map(
+                model_input_path,
+                bdf_info,
+                mesh_manifest=request.mesh_manifest,
+            )
             if model_input_path is not None and model_input_path.exists()
             else {}
         )
@@ -1110,7 +1114,21 @@ class TacsFEABackend(FEABackend):
             "component_thickness": component_thickness,
         }
 
-    def _parse_region_pid_map(self, path: Path, bdf_info: Any | None = None) -> dict[str, int]:
+    def _parse_region_pid_map(
+        self,
+        path: Path,
+        bdf_info: Any | None = None,
+        *,
+        mesh_manifest: Any | None = None,
+    ) -> dict[str, int]:
+        if mesh_manifest is not None:
+            mapping = {
+                region.name: int(region.export_pid)
+                for region in mesh_manifest.regions
+                if region.export_pid is not None
+            }
+            if mapping:
+                return mapping
         pattern = re.compile(r"^\$\s+REGION\s+pid=(?P<pid>\d+).*\sname=(?P<name>\S+)\s*$")
         mapping: dict[str, int] = {}
         for line in path.read_text().splitlines():

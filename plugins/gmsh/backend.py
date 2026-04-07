@@ -6,11 +6,19 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from mass_town.disciplines.contracts import (
+    MaterialReference,
+    MeshToFEAManifest,
+    NamedRegion,
+    PropertyAssignment,
+    write_mesh_to_fea_manifest,
+)
 from mass_town.disciplines.meshing import MeshingBackend, MeshingRequest, MeshingResult
 from mass_town.storage.filesystem import ensure_directory
 
 from .exporters import export_msh, write_bdf
 from .extraction import parse_gmsh_msh2
+from .mesh_model import NormalizedMesh
 
 logger = logging.getLogger(__name__)
 
@@ -88,22 +96,96 @@ class GmshMeshingBackend(MeshingBackend):
 
         output_path = export_msh(intermediate_mesh_path)
         element_count = 0
+        mesh_manifest = None
+        mesh_manifest_path = None
         metadata["mesh_format"] = request.output_format
         metadata["intermediate_msh_path"] = str(intermediate_mesh_path)
 
         if request.output_format == "bdf":
             normalized_mesh = parse_gmsh_msh2(intermediate_mesh_path)
             output_path = write_bdf(normalized_mesh, mesh_directory / f"{geometry_path.stem}.bdf")
+            mesh_manifest = self._build_mesh_to_fea_manifest(
+                normalized_mesh=normalized_mesh,
+                mesh_path=output_path,
+                source_mesh_path=intermediate_mesh_path,
+                metadata=metadata,
+            )
+            mesh_manifest_path = mesh_directory / f"{geometry_path.stem}.mesh_to_fea_manifest.json"
+            write_mesh_to_fea_manifest(mesh_manifest, mesh_manifest_path)
             metadata.update(normalized_mesh.metadata)
+            metadata["mesh_manifest_path"] = str(mesh_manifest_path)
             element_count = len(normalized_mesh.elements)
 
         return MeshingResult(
             backend_name=self.name,
             mesh_path=output_path,
+            mesh_manifest_path=mesh_manifest_path,
+            mesh_manifest=mesh_manifest,
             quality=max(request.target_quality, 0.9),
             element_count=element_count,
             metadata=metadata,
             log_path=log_path,
+        )
+
+    def _build_mesh_to_fea_manifest(
+        self,
+        *,
+        normalized_mesh: NormalizedMesh,
+        mesh_path: Path,
+        source_mesh_path: Path,
+        metadata: dict[str, str | float | int | bool],
+    ) -> MeshToFEAManifest:
+        material = MaterialReference(
+            id="default_structural_material",
+            name="Default Structural Material",
+            model="implicit_solver_default",
+            metadata={"source": "gmsh_bdf_export_placeholder"},
+        )
+        regions = [
+            NamedRegion(
+                id=region.name,
+                name=region.name,
+                element_kind=region.element_kind,
+                source="gmsh_physical_group",
+                source_id=(
+                    str(region.gmsh_physical_id)
+                    if region.gmsh_physical_id is not None
+                    else None
+                ),
+                export_pid=region.pid,
+                entity_dimension=region.entity_dim,
+                metadata={
+                    key: value
+                    for key, value in {
+                        "raw_name": region.raw_name or "",
+                        "gmsh_physical_id": region.gmsh_physical_id,
+                    }.items()
+                    if value is not None
+                },
+            )
+            for region in normalized_mesh.regions
+        ]
+        property_assignments = [
+            PropertyAssignment(
+                id=f"{region.name}_property",
+                region_id=region.name,
+                element_kind=region.element_kind,
+                material_id=material.id,
+                thickness=1.0 if region.element_kind == "shell" else None,
+                metadata={
+                    "export_pid": region.pid,
+                    "source": "gmsh_bdf_export_placeholder",
+                },
+            )
+            for region in normalized_mesh.regions
+        ]
+        return MeshToFEAManifest(
+            mesh_path=mesh_path,
+            source_mesh_path=source_mesh_path,
+            regions=regions,
+            materials=[material],
+            property_assignments=property_assignments,
+            metadata=dict(metadata),
         )
 
     def _generate_volume_mesh(
