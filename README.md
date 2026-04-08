@@ -45,6 +45,7 @@ OpenMDAO workflows use:
 ```bash
 pixi install -e mdao
 pixi run -e mdao python -c "import openmdao.api as om; print(om.__version__)"
+pixi run -e mdao run-openmdao-mock-example
 ```
 
 The checked-in structural workflow is TACS-backed and should be run from `fea`:
@@ -95,6 +96,7 @@ your checkout is elsewhere.
 - `examples/solid_cantilever_problem/`: STEP-driven 3D solid cantilever benchmark
 - `examples/shell_cantilever_problem/`: shell companion benchmark using the same cantilever STEP geometry
 - `examples/topology_cantilever_problem/`: structured 2D plane-stress topology optimization baseline
+- `examples/openmdao_mock_structural_problem/`: mock-backed structural optimization baseline for the additive OpenMDAO runtime
 - `tests/`: unit tests for the core orchestration and CLI
 
 Example projects now follow a canonical Phase 0 layout:
@@ -139,6 +141,13 @@ The current external project contract remains additive:
 
 This keeps existing examples working while separating problem definition from
 run history and making the workflow ready for later MDAO/interface cleanup.
+
+The first checked-in OpenMDAO path is intentionally narrow:
+
+- it is selected at execution time with `mass-town run --runtime openmdao`
+- it currently supports only structural static problems with direct model input
+- it excludes geometry and meshing from the OpenMDAO model
+- it starts with a mock-backed optimization example in the `mdao` environment
 
 ## Discipline and plugin separation
 

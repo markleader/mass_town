@@ -1,0 +1,4 @@
+openmdao-mock-structural-problem:
+  status: recovered
+  iteration_count: 2
+  summary_path: results/openmdao-mock-structural-problem/reports/run_summary.json

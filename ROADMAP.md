@@ -176,7 +176,9 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 * Additive migration from `config.yaml` + `design_state.yaml` into a normalized schema artifact without breaking existing examples
 * Additive discipline-interface migration: shared DTOs and mesh-to-FEA manifests
   are introduced behind the current project inputs before any graph rewrite
-* Graph-based workflow execution (e.g., OpenMDAO or equivalent)
+* Graph-based workflow execution (OpenMDAO)
+* First additive OpenMDAO baseline: a mock-backed structural optimization in `mdao`
+  with geometry/meshing left outside the OpenMDAO model
 * Discipline-level separation with clean interfaces
 * Later schema/graph convergence: richer property handling and deeper
   post-processing migration are deferred until the additive interfaces are stable

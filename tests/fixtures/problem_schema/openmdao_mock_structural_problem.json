@@ -1,0 +1,41 @@
+{
+  "problem": {
+    "id": "openmdao_mock_structural_problem",
+    "name": "openmdao_mock_structural_problem"
+  },
+  "model": {
+    "type": "shell",
+    "input_source": "model_file"
+  },
+  "analysis": {
+    "discipline": "structural",
+    "analysis_type": "static",
+    "case_name": "mock_static"
+  },
+  "objectives": [
+    {
+      "kind": "minimize_mass",
+      "response": "analysis.mass",
+      "enabled": true,
+      "metadata": {
+        "backend_result_key": "mass"
+      }
+    }
+  ],
+  "constraints": [
+    {
+      "kind": "max_stress",
+      "limit": 180.0,
+      "method": null,
+      "source": null,
+      "mode": null,
+      "metadata": {}
+    }
+  ],
+  "execution": {
+    "initial_tasks": [
+      "fea",
+      "optimizer"
+    ]
+  }
+}

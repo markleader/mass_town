@@ -607,6 +607,19 @@ class ProblemSchemaResolver:
     def _structural_objectives(self, config: WorkflowConfig) -> list[ObjectiveSpec]:
         if "optimizer" not in config.initial_tasks:
             return []
+        objective_kind = (
+            config.optimizer.objective
+            if config.optimizer is not None
+            else "feasibility"
+        )
+        if objective_kind == "minimize_mass":
+            return [
+                ObjectiveSpec(
+                    kind="minimize_mass",
+                    response="analysis.mass",
+                    metadata={"backend_result_key": "mass"},
+                )
+            ]
         return [
             ObjectiveSpec(
                 kind="feasibility",
@@ -670,6 +683,14 @@ class ProblemSchemaResolver:
                 backend="none",
                 strategy="not_requested",
                 max_iterations=config.max_iterations,
+            )
+        if config.optimizer is not None:
+            return OptimizerSpec(
+                enabled=config.optimizer.enabled,
+                backend=config.optimizer.backend,
+                strategy=config.optimizer.strategy,
+                max_iterations=config.max_iterations,
+                settings=dict(config.optimizer.settings),
             )
         return OptimizerSpec(
             enabled=True,

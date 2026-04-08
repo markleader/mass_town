@@ -39,11 +39,23 @@ class FEAConfig(BaseModel):
     solid_setup: FEASolidSetup | None = None
 
 
+ConfigScalar = str | float | int | bool
+
+
+class OptimizerConfig(BaseModel):
+    enabled: bool = True
+    backend: str = "mass_town_heuristic"
+    strategy: str = "stress_recovery_thickness_update"
+    objective: Literal["feasibility", "minimize_mass"] = "feasibility"
+    settings: dict[str, ConfigScalar] = Field(default_factory=dict)
+
+
 class WorkflowConfig(BaseModel):
     max_iterations: int = 8
     allowable_stress: float = 180.0
     meshing: MeshingConfig = Field(default_factory=MeshingConfig)
     fea: FEAConfig = Field(default_factory=FEAConfig)
+    optimizer: OptimizerConfig | None = None
     topology: TopologyConfig | None = None
     design_variables: list[DesignVariableDefinition] = Field(default_factory=list)
     initial_tasks: list[str] = Field(

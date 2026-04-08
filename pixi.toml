@@ -16,6 +16,10 @@ pytest = ">=8.0"
 [feature.mdao.pypi-dependencies]
 openmdao = ">=3.30"
 
+[feature.mdao.tasks]
+run-openmdao-mock-example = "python -m mass_town.cli run --runtime openmdao examples/openmdao_mock_structural_problem"
+test-openmdao-runtime = "python -m pytest tests/test_openmdao_runtime.py -q"
+
 [feature.fea.pypi-dependencies]
 gmsh = ">=4.13"
 imageio = ">=2.34"

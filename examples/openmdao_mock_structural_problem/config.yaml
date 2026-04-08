@@ -1,0 +1,39 @@
+max_iterations: 12
+allowable_stress: 180.0
+fea:
+  tool: mock
+  model_input_path: inputs/model/mock_panel.bdf
+  case_name: mock_static
+  analysis_type: static
+  write_solution: false
+optimizer:
+  enabled: true
+  backend: openmdao_slsqp
+  strategy: scipy_slsqp
+  objective: minimize_mass
+  settings:
+    tol: 1.0e-9
+design_variables:
+  - id: skin_t
+    name: Skin Thickness
+    type: region_thickness
+    initial_value: 0.7
+    bounds:
+      lower: 0.1
+      upper: 1.0
+    units: m
+    region: skin
+    active: true
+  - id: web_t
+    name: Web Thickness
+    type: region_thickness
+    initial_value: 0.7
+    bounds:
+      lower: 0.1
+      upper: 1.0
+    units: m
+    region: web
+    active: true
+initial_tasks:
+  - fea
+  - optimizer

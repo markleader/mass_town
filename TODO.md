@@ -273,13 +273,18 @@ Deferred follow-up work:
 
 #### 5.3 MDAO integration
 
-* [ ] Decide when to integrate OpenMDAO directly versus maintaining a lightweight custom graph first.
-* [ ] Build a minimal MDAO-style example with at least:
+* [x] Decide when to integrate OpenMDAO directly versus maintaining a lightweight custom graph first.
+  * Decision: integrate OpenMDAO directly for the first additive graph-based runtime path.
+* [x] Build a minimal MDAO-style example with at least:
   * one geometry/mesh component
   * one FEA component
   * one post-processing component
   * one optimizer
-* [ ] Ensure derivatives can be propagated through the workflow if available.
+  * Current scope: Phase 5.3 starts with FEA + post-processing + optimizer inside OpenMDAO while geometry/mesh remain outside the OpenMDAO model.
+  * The first checked-in baseline is `examples/openmdao_mock_structural_problem`, a mock-backed static structural optimization in the `mdao` environment.
+* [x] Ensure derivatives can be propagated through the workflow if available.
+  * Analytic sensitivities are consumed when the backend provides complete response/DV pairs.
+  * OpenMDAO finite-difference fallback is enabled per component when analytic coverage is incomplete, with warnings and workflow diagnostics naming the missing pairs.
 
 ### Deliverables
 

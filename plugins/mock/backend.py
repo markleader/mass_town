@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from mass_town.disciplines import SensitivityPayload
+from mass_town.disciplines.fea import FEABackend, FEARequest, FEAResult
 from mass_town.disciplines.meshing import MeshingBackend, MeshingRequest, MeshingResult
 from mass_town.storage.filesystem import ensure_directory
 
@@ -40,4 +42,92 @@ class MockMeshingBackend(MeshingBackend):
             quality=quality,
             element_count=element_count,
             metadata={"generator": "mock", "geometry_stem": geometry_stem},
+        )
+
+
+class MockFEABackend(FEABackend):
+    name = "mock"
+
+    def is_available(self) -> bool:
+        return True
+
+    def availability_reason(self) -> str | None:
+        return None
+
+    def run_analysis(self, request: FEARequest) -> FEAResult:
+        if request.model_input_path is None:
+            raise ValueError("The mock backend requires a model input path.")
+        if not request.model_input_path.exists():
+            raise FileNotFoundError(f"FEA model input does not exist: {request.model_input_path}")
+
+        thickness_1 = float(request.design_variables.get("skin_t", 0.6))
+        thickness_2 = float(request.design_variables.get("web_t", 0.6))
+
+        mass = (2.0 * thickness_1) + (3.0 * thickness_2)
+        max_stress = (30.0 / thickness_1) + (40.0 / thickness_2)
+        displacement_norm = (0.05 / thickness_1) + (0.08 / thickness_2)
+        passed = max_stress <= request.allowable_stress
+
+        summary_path = request.report_directory / "mock-fea-summary.json"
+        log_path = request.log_directory / "mock-fea.log"
+        summary_path.write_text(
+            "\n".join(
+                [
+                    "{",
+                    f'  "backend": "{self.name}",',
+                    f'  "mass": {mass:.10f},',
+                    f'  "max_stress": {max_stress:.10f},',
+                    f'  "displacement_norm": {displacement_norm:.10f},',
+                    f'  "passed": {"true" if passed else "false"}',
+                    "}",
+                    "",
+                ]
+            )
+        )
+        log_path.write_text(
+            f"backend={self.name} mass={mass:.10f} max_stress={max_stress:.10f} "
+            f"displacement_norm={displacement_norm:.10f} passed={passed}\n"
+        )
+
+        sensitivities = [
+            SensitivityPayload(response="mass", with_respect_to="skin_t", values=[2.0]),
+            SensitivityPayload(response="mass", with_respect_to="web_t", values=[3.0]),
+            SensitivityPayload(
+                response="max_stress",
+                with_respect_to="skin_t",
+                values=[-(30.0 / (thickness_1 ** 2))],
+            ),
+            SensitivityPayload(
+                response="max_stress",
+                with_respect_to="web_t",
+                values=[-(40.0 / (thickness_2 ** 2))],
+            ),
+            SensitivityPayload(
+                response="displacement_norm",
+                with_respect_to="skin_t",
+                values=[-(0.05 / (thickness_1 ** 2))],
+            ),
+            SensitivityPayload(
+                response="displacement_norm",
+                with_respect_to="web_t",
+                values=[-(0.08 / (thickness_2 ** 2))],
+            ),
+        ]
+
+        return FEAResult(
+            backend_name=self.name,
+            passed=passed,
+            mass=mass,
+            max_stress=max_stress,
+            displacement_norm=displacement_norm,
+            result_files=[summary_path],
+            metadata={
+                "case_name": request.case_name,
+                "model_name": request.model_input_path.name,
+                "dv_skin_t": round(thickness_1, 8),
+                "dv_web_t": round(thickness_2, 8),
+            },
+            log_path=log_path,
+            analysis_seconds=0.01,
+            sensitivities=sensitivities,
         )

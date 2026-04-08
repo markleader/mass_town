@@ -13,13 +13,22 @@ app = typer.Typer(help="Engineering workflow supervision prototype.")
 @app.command()
 def run(
     project_dir: Path = typer.Argument(..., exists=True, file_okay=False, dir_okay=True),
+    runtime: str = typer.Option("local", "--runtime", help="Execution runtime: local or openmdao."),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ) -> None:
     """Run the example workflow inside a project directory."""
     configure_logging(verbose)
     config = WorkflowConfig.from_file(project_dir / "config.yaml")
-    runtime = LocalRuntime(config)
-    state = runtime.run(project_dir / "design_state.yaml", project_dir)
+    runtime_name = runtime.strip().lower()
+    if runtime_name == "local":
+        selected_runtime = LocalRuntime(config)
+    elif runtime_name == "openmdao":
+        from mass_town.runtime.openmdao_runtime import OpenMDAORuntime
+
+        selected_runtime = OpenMDAORuntime(config)
+    else:
+        raise typer.BadParameter("runtime must be one of: local, openmdao")
+    state = selected_runtime.run(project_dir / "design_state.yaml", project_dir)
     typer.echo(f"run_id={state.run_id} status={state.status} iteration={state.iteration}")
 
 

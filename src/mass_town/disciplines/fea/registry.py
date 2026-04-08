@@ -16,7 +16,13 @@ def _load_tacs(*_: object) -> FEABackend:
     return module.TacsFEABackend()
 
 
+def _load_mock(*_: object) -> FEABackend:
+    module = import_module("plugins.mock.backend")
+    return module.MockFEABackend()
+
+
 BACKEND_LOADERS: dict[str, BackendLoader] = {
+    "mock": _load_mock,
     "tacs": _load_tacs,
 }
 

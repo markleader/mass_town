@@ -1,0 +1,24 @@
+run_id: openmdao-mock-structural-problem
+problem_name: openmdao_mock_structural_problem
+status: pending
+iteration: 0
+design_variables:
+  skin_t: 0.7
+  web_t: 0.7
+constraints:
+  max_stress: 180.0
+geometry_state:
+  valid: true
+  notes: direct-model-input
+mesh_state:
+  quality: 0.0
+  elements: 0
+analysis_state:
+  mass: null
+  max_stress: null
+  displacement_norm: null
+  passed: false
+diagnostics: []
+decision_history: []
+artifacts: []
+task_history: []

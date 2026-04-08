@@ -110,6 +110,17 @@ def test_buckling_and_modal_examples_preserve_eigenvalue_constraints() -> None:
     assert modal_constraint.limit == pytest.approx(0.25)
 
 
+def test_openmdao_mock_example_converts_with_mass_objective() -> None:
+    _, schema = _resolve_example("openmdao_mock_structural_problem")
+
+    assert _subset(schema) == _fixture("openmdao_mock_structural_problem.json")
+    assert schema.model.model_input_path == "inputs/model/mock_panel.bdf"
+    assert [design_variable.id for design_variable in schema.design_variables] == ["skin_t", "web_t"]
+    assert schema.optimizer is not None
+    assert schema.optimizer.backend == "openmdao_slsqp"
+    assert schema.optimizer.strategy == "scipy_slsqp"
+
+
 def test_topology_example_converts_to_problem_schema_snapshot() -> None:
     _, schema = _resolve_example("topology_cantilever_problem")
 

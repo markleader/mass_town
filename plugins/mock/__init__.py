@@ -1,2 +1,1 @@
-"""Deterministic mock meshing plugin."""
-
+"""Deterministic mock discipline backends."""
