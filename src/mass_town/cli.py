@@ -6,6 +6,7 @@ from mass_town.config import WorkflowConfig
 from mass_town.logging_utils import configure_logging
 from mass_town.orchestration.state_manager import StateManager
 from mass_town.runtime.local_runtime import LocalRuntime
+from mass_town.runtime.outer_loop_runtime import OuterLoopRuntime
 
 app = typer.Typer(help="Engineering workflow supervision prototype.")
 
@@ -21,8 +22,14 @@ def run(
     config = WorkflowConfig.from_file(project_dir / "config.yaml")
     runtime_name = runtime.strip().lower()
     if runtime_name == "local":
-        selected_runtime = LocalRuntime(config)
+        selected_runtime = OuterLoopRuntime(config) if config.llm.enabled else LocalRuntime(config)
     elif runtime_name == "openmdao":
+        if config.llm.enabled:
+            typer.echo(
+                "LLM outer-loop orchestration is only supported with --runtime local.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
         from mass_town.runtime.openmdao_runtime import OpenMDAORuntime
 
         selected_runtime = OpenMDAORuntime(config)

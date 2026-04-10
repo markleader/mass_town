@@ -1,0 +1,17 @@
+max_iterations: 3
+allowable_stress: 180.0
+llm:
+  enabled: true
+  backend: mock
+  model: mock-local
+meshing:
+  tool: mock
+  target_quality: 0.75
+fea:
+  tool: mock
+  model_input_path: inputs/model/mock_panel.bdf
+initial_tasks:
+  - geometry
+  - mesh
+  - fea
+  - optimizer

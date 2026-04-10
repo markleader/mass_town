@@ -9,6 +9,8 @@ from mass_town.disciplines.contracts import MeshToFEAManifest, SensitivityPayloa
 from mass_town.disciplines.fea.shell_setup import FEAShellSetup
 from mass_town.disciplines.fea.solid_setup import FEASolidSetup
 
+FEASettingScalar = str | float | int | bool
+
 
 class FEALoadCase(BaseModel):
     loads: dict[str, float] = Field(default_factory=dict)
@@ -76,6 +78,7 @@ class FEARequest(BaseModel):
     analysis_type: Literal["static", "buckling", "modal"] = "static"
     load_cases: dict[str, FEALoadCase] = Field(default_factory=dict)
     write_solution: bool = True
+    settings: dict[str, FEASettingScalar] = Field(default_factory=dict)
     buckling_setup: FEABucklingSetup | None = None
     modal_setup: FEAModalSetup | None = None
     shell_setup: FEAShellSetup | None = None

@@ -10,7 +10,7 @@ from mass_town.agents.topology_agent import TopologyAgent
 from mass_town.config import WorkflowConfig
 from mass_town.models.artifacts import ArtifactRecord
 from mass_town.models.design_state import DesignState, TaskRecord
-from mass_town.models.result import AgentResult
+from mass_town.models.result import AgentResult, Diagnostic
 from mass_town.orchestration.chief_engineer import ChiefEngineer
 from mass_town.orchestration.run_reporter import RunReporter
 from mass_town.orchestration.state_manager import StateManager
@@ -61,6 +61,14 @@ class WorkflowEngine:
         )
         while not queue.is_empty():
             if state.iteration >= self.config.max_iterations:
+                state.diagnostics.append(
+                    Diagnostic(
+                        code="runtime.max_iterations_exceeded",
+                        message="Workflow stopped after reaching the configured max_iterations limit.",
+                        task="runtime",
+                        details={"max_iterations": self.config.max_iterations},
+                    )
+                )
                 state.status = "failed"
                 break
 

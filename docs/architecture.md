@@ -10,7 +10,33 @@
 - Filesystem-backed storage persists state, diagnostics, history, and artifacts.
 
 The design keeps workflow knowledge outside model context so the same run can be
-inspected, resumed, or handed to a future LLM controller.
+inspected, resumed, or handed to a future LLM outer-loop controller.
+
+## LLM outer-loop direction
+
+The planned LLM layer is an outer-loop orchestration system around deterministic
+optimization runs.
+
+- Users still kick off an optimization manually from a fully specified problem definition.
+- Deterministic code still owns the inner execution loop, solver calls, and optimization iterations.
+- The LLM layer inspects structured run summaries, diagnostics, and logs after a run or discipline step completes.
+- The LLM layer may propose bounded rerun actions such as solver tolerance changes, iteration-limit changes, meshing adjustments, or optimizer-setting changes.
+- The LLM layer may automatically trigger a restart only within explicit retry budgets, time budgets, and permitted action classes.
+- The LLM layer must not directly modify numerical state inside solver loops.
+- The LLM layer must not silently change loads, boundary conditions, objectives, constraints, or design intent.
+- CAD or geometry edits are future work and remain out of scope for the first LLM phase.
+
+This direction treats the LLM as a guarded chief engineer for reruns and
+recovery, not as a replacement for deterministic discipline execution.
+
+## Knowledge boundaries for LLM roles
+
+Future LLM roles should follow the same separation principles as the codebase.
+
+- Each role may have a curated, version-controlled markdown knowledge file for discipline-level guidance.
+- Tool-specific knowledge should live with the relevant plugin boundary rather than in shared core prompts.
+- Persistent run observations should be stored as artifacts or history, not silently folded into permanent knowledge.
+- Promotion of a "lesson learned" into permanent knowledge should happen through an intentional repo change.
 
 ## Plugin-based disciplines MVP
 

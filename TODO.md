@@ -331,11 +331,14 @@ Deferred follow-up work:
 
 ---
 
-## Phase 7 — Introduce the LLM-based driver
+## Phase 7 — Introduce the LLM-based outer-loop driver
 
 ### Guiding rule
 
-Do not use the LLM as the numerical controller. Use it first as a planner that emits a structured execution plan which is then run by deterministic code.
+Do not use the LLM as the numerical controller. The optimization run is still
+started against a fully specified deterministic problem definition. The LLM sits
+outside that inner loop, judges run outcomes, chooses bounded recovery or tuning
+actions, and then re-launches the next deterministic run.
 
 ### Start only after these conditions are met
 
@@ -354,31 +357,71 @@ Do not use the LLM as the numerical controller. Use it first as a planner that e
 
 * [ ] There are enough branching and failure-recovery cases that rule-based orchestration is becoming cumbersome.
 
-### First LLM-driver tasks
+### Phase 7A — First LLM-driver tasks
 
-* [ ] Use the LLM to map a user request into a structured problem specification.
-* [ ] Use the LLM to choose among existing deterministic workflows.
-* [ ] Use the LLM to propose recovery actions after failures, but require deterministic validation before execution.
-* [ ] Log all LLM decisions and the exact structured plan they produced.
+* [x] Keep optimization kickoff manual. Require the user to define the
+  single-discipline or multidisciplinary optimization problem before the first
+  run.
+* [x] Use the LLM to assess discipline-level success or failure from structured
+  run outputs, diagnostics, and logs.
+* [x] Use the LLM to tune bounded rerun settings before the next deterministic
+  run, for example:
+  * solver tolerances
+  * solver or optimizer iteration limits
+  * optimizer settings
+  * meshing settings
+  * topology continuation or stabilization parameters
+* [x] Allow the LLM layer to restart the optimization loop automatically without
+  additional user input, but only within explicit retry, time, and action
+  budgets.
+* [x] Log all LLM decisions, the exact proposed changes, and the rationale for
+  each rerun.
+* [x] Define machine-readable success, failure, and "substandard but converged"
+  contracts so the LLM reasons over structured summaries instead of raw logs
+  alone.
+* [x] Add one chief-engineer LLM role plus one LLM role per discipline.
+* [x] Keep deterministic validation between LLM decisions and the next run.
 
 ### Later LLM-driver tasks
 
 * [ ] Add multi-step planning across disciplines.
-* [ ] Add failure triage and rerun strategies.
+* [ ] Expand failure triage and rerun strategies for coupled workflows.
 * [ ] Add design-study setup generation from natural language requests.
-* [ ] Add model-form selection recommendations, with explicit confidence and fallback rules.
+* [ ] Add model-form selection recommendations, with explicit confidence and
+  fallback rules.
+* [ ] Revisit bounded CAD or geometry repair actions once permitted action
+  classes and validation rules are mature enough.
 
 ### Non-goals for the first LLM phase
 
 * [ ] Do not let the LLM directly update numerical states inside the solve loop.
 * [ ] Do not let the LLM replace the optimizer.
 * [ ] Do not let the LLM make irreversible changes without validation.
+* [ ] Do not let the LLM silently change the engineering problem definition,
+  including loads, boundary conditions, objectives, constraints, or design
+  intent.
+* [ ] Do not allow CAD or geometry edits in the first LLM phase.
+* [ ] Do not allow unbounded automatic reruns without stop conditions.
+
+### Knowledge and memory expectations
+
+* [ ] Give each LLM role a version-controlled markdown knowledge file for the
+  role itself.
+* [ ] Keep tool-specific markdown knowledge with the relevant plugin boundary,
+  for example TACS knowledge in the TACS area and Gmsh knowledge in the Gmsh
+  area.
+* [ ] Separate permanent knowledge from run-specific observations:
+  * permanent role and tool knowledge stays curated and version controlled
+  * run observations, lessons, and outcomes are recorded as run artifacts
+* [ ] Do not auto-promote ad hoc run observations into permanent knowledge
+  without an intentional repo change.
 
 ### Deliverables
 
-* LLM planner prototype
-* Structured plan schema
-* Deterministic executor for LLM-generated plans
+* [x] LLM outer-loop prototype
+* [x] Structured rerun-decision schema
+* [x] Deterministic executor for LLM-approved reruns
+* [x] Retry-budget and stop-policy contract
 
 ---
 
@@ -393,7 +436,7 @@ Do not use the LLM as the numerical controller. Use it first as a planner that e
   * experimental
   * advanced
 
-* [ ] Add one page describing the roadmap from deterministic driver to LLM planner.
+* [ ] Add one page describing the roadmap from deterministic driver to the LLM outer-loop controller.
 
 ### Testing
 
@@ -448,7 +491,7 @@ Do not use the LLM as the numerical controller. Use it first as a planner that e
 
 ### Only after the above
 
-* [ ] Start the first LLM-planner prototype.
+* [ ] Start the first LLM outer-loop prototype.
 
 ---
 
@@ -480,7 +523,7 @@ Do not use the LLM as the numerical controller. Use it first as a planner that e
 ### Milestone 5
 
 * First multidisciplinary coupled example
-* LLM planner prototype
+* LLM outer-loop prototype
 
 ---
 
@@ -490,7 +533,7 @@ Do not use the LLM as the numerical controller. Use it first as a planner that e
 * [ ] Should the first coupled discipline be thermal, CFD-lite, or true CFD?
 * [ ] How much solver-specific logic should live inside plugins versus shared core abstractions?
 * [ ] What metadata must survive from CAD through meshing into FEA for robust named-region workflows?
-* [ ] What is the minimum reliable structured schema for an LLM-generated execution plan?
+* [ ] What is the minimum reliable structured schema for an LLM-generated rerun decision?
 
 ---
 

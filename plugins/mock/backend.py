@@ -60,8 +60,9 @@ class MockFEABackend(FEABackend):
         if not request.model_input_path.exists():
             raise FileNotFoundError(f"FEA model input does not exist: {request.model_input_path}")
 
-        thickness_1 = float(request.design_variables.get("skin_t", 0.6))
-        thickness_2 = float(request.design_variables.get("web_t", 0.6))
+        global_thickness = float(request.design_variables.get("thickness", 0.6))
+        thickness_1 = float(request.design_variables.get("skin_t", global_thickness))
+        thickness_2 = float(request.design_variables.get("web_t", global_thickness))
 
         mass = (2.0 * thickness_1) + (3.0 * thickness_2)
         max_stress = (30.0 / thickness_1) + (40.0 / thickness_2)
@@ -126,6 +127,7 @@ class MockFEABackend(FEABackend):
                 "model_name": request.model_input_path.name,
                 "dv_skin_t": round(thickness_1, 8),
                 "dv_web_t": round(thickness_2, 8),
+                "settings_count": len(request.settings),
             },
             log_path=log_path,
             analysis_seconds=0.01,

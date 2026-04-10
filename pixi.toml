@@ -66,4 +66,6 @@ run-shell-modal-bdf-example = "python -m mass_town.cli run examples/shell_modal_
 run-solid-cantilever-example = "python -m mass_town.cli run examples/solid_cantilever_problem"
 run-shell-cantilever-example = "python -m mass_town.cli run examples/shell_cantilever_problem"
 run-topology-example = "python -m mass_town.cli run examples/topology_cantilever_problem"
+run-llm-outer-loop-example = "python -m mass_town.cli run examples/llm_outer_loop_mock_problem"
 run-example = "python -m mass_town.cli run examples/simple_structural_problem"
+test-llm-outer-loop-example = "python -m pytest tests/test_outer_loop_runtime.py -q -k checked_in_llm_example"

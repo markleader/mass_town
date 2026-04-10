@@ -393,13 +393,21 @@ def _base_state() -> DesignState:
 
 def test_config_parses_fea_settings() -> None:
     config = WorkflowConfig.model_validate(
-        {"fea": {"tool": "tacs", "model_input_path": "analysis/model.bdf", "case_name": "wing"}}
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "case_name": "wing",
+                "settings": {"tol": 1e-6, "solver": "gmres"},
+            }
+        }
     )
 
     assert config.fea.tool == "tacs"
     assert config.fea.model_input_path == "analysis/model.bdf"
     assert config.fea.case_name == "wing"
     assert config.fea.write_solution is True
+    assert config.fea.settings == {"tol": 1e-06, "solver": "gmres"}
 
 
 def test_config_parses_buckling_settings() -> None:
@@ -1040,6 +1048,32 @@ def test_fea_agent_forwards_modal_settings(monkeypatch, tmp_path: Path) -> None:
     assert backend.last_request.modal_setup is not None
     assert backend.last_request.modal_setup.sigma == 15.0
     assert backend.last_request.modal_setup.num_eigenvalues == 4
+
+
+def test_fea_agent_forwards_generic_solver_settings(monkeypatch, tmp_path: Path) -> None:
+    model_path = tmp_path / "analysis" / "model.bdf"
+    model_path.parent.mkdir(parents=True)
+    model_path.write_text("CEND\nBEGIN BULK\nENDDATA\n")
+    backend = StubFEABackend()
+    monkeypatch.setitem(BACKEND_LOADERS, "tacs", lambda: backend)
+    config = WorkflowConfig.model_validate(
+        {
+            "fea": {
+                "tool": "tacs",
+                "model_input_path": "analysis/model.bdf",
+                "settings": {
+                    "tol": 1e-7,
+                    "linear_solver": "gmres",
+                },
+            }
+        }
+    )
+
+    result = FEAAgent().run(_base_state(), config, tmp_path)
+
+    assert result.status == "success"
+    assert backend.last_request is not None
+    assert backend.last_request.settings == {"tol": 1e-07, "linear_solver": "gmres"}
 
 
 def test_fea_agent_forwards_solid_setup(monkeypatch, tmp_path: Path) -> None:

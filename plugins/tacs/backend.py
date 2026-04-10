@@ -310,6 +310,7 @@ class TacsFEABackend(FEABackend):
             "function_names": ",".join(sorted(analysis.get("function_values", {}))),
             "load_case_count": len(case_results),
             "worst_case_name": analysis["case_name"],
+            "settings_count": len(request.settings),
         }
         if analysis["failure_index"] is not None:
             metadata["failure_index"] = round(float(analysis["failure_index"]), 6)

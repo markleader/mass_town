@@ -57,6 +57,7 @@ pixi run -e fea run-shell-bdf-example
 pixi run -e fea run-shell-bdf-multi-case-example
 pixi run -e fea run-shell-buckling-bdf-example
 pixi run -e fea run-shell-modal-bdf-example
+pixi run -e default run-llm-outer-loop-example
 pixi run -e fea test-fea-baseline
 pixi run -e fea test-shell-bdf-example
 pixi run -e fea test-shell-bdf-multi-case-example
@@ -96,6 +97,7 @@ your checkout is elsewhere.
 - `examples/solid_cantilever_problem/`: STEP-driven 3D solid cantilever benchmark
 - `examples/shell_cantilever_problem/`: shell companion benchmark using the same cantilever STEP geometry
 - `examples/topology_cantilever_problem/`: structured 2D plane-stress topology optimization baseline
+- `examples/llm_outer_loop_mock_problem/`: deterministic Phase 7A outer-loop example using mock engineering backends and the mock LLM backend
 - `examples/openmdao_mock_structural_problem/`: mock-backed structural optimization baseline for the additive OpenMDAO runtime
 - `tests/`: unit tests for the core orchestration and CLI
 
@@ -108,6 +110,54 @@ Example projects now follow a canonical Phase 0 layout:
 - `results/<run_id>/solver`: solver-native outputs such as `.f5`
 - `results/<run_id>/reports`: normalized summaries, including `run_summary.json`
   and the resolved `problem_schema.json`
+
+## LLM outer-loop controller
+
+MassTown now supports a guarded Phase 7A outer-loop controller around the
+existing `local` runtime.
+
+- kickoff remains manual: the user still supplies `config.yaml` and `design_state.yaml`
+- the inner workflow stays deterministic
+- the outer loop reads structured attempt summaries and returns bounded rerun decisions
+- Phase 7A can only change allowed execution settings such as `max_iterations`,
+  meshing settings, `fea.settings.*`, selected buckling or modal settings,
+  `optimizer.settings.*`, and selected topology settings
+- Phase 7A does not change loads, boundary conditions, objectives, constraints,
+  materials, design-variable definitions, model paths, or CAD geometry
+
+Example `llm:` block:
+
+```yaml
+llm:
+  enabled: true
+  backend: ollama
+  model: llama3.1:8b
+  endpoint: http://127.0.0.1:11434
+  max_attempts: 3
+  max_total_runtime_seconds: 3600
+  min_confidence: 0.65
+  max_repeat_action_count: 2
+```
+
+For real local-model usage, install and run Ollama first. The checked-in
+example uses `backend: mock` so it stays deterministic in the `default`
+environment; that mock backend is intended for tests and examples, not for
+production decision-making.
+
+Curated role knowledge lives under
+[`docs/llm/roles/`](/Users/markleader/git/mass_town/docs/llm/roles), and
+tool-specific knowledge lives beside the relevant plugin, for example
+[`plugins/gmsh/KNOWLEDGE.md`](/Users/markleader/git/mass_town/plugins/gmsh/KNOWLEDGE.md)
+and [`plugins/tacs/KNOWLEDGE.md`](/Users/markleader/git/mass_town/plugins/tacs/KNOWLEDGE.md).
+
+When the outer loop is enabled, MassTown writes additional artifacts under
+`results/<base_run_id>/outer_loop/`:
+
+- `attempts/attempt-###/attempt_summary.json`
+- `attempts/attempt-###/discipline_assessments.json`
+- `attempts/attempt-###/chief_decision.json`
+- `outer_loop_summary.json`
+- `outer_loop.log`
 
 The topology example uses the same `results/<run_id>/...` layout but writes
 structured mesh metadata to `mesh/` and density-history/report artifacts to

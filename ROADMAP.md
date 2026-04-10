@@ -104,8 +104,8 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 4. Planning Layer (future)
 
-   * LLM-assisted planning and decision-making
-   * Converts user intent into structured execution plans
+   * LLM-assisted outer-loop orchestration and decision-making
+   * Converts user intent into structured workflow or rerun decisions
 
 ---
 
@@ -208,7 +208,7 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 ---
 
-### Phase 7 — LLM-assisted planning
+### Phase 7 — LLM-assisted outer-loop orchestration
 
 #### Entry criteria
 
@@ -219,16 +219,26 @@ Failures (mesh issues, solver divergence, infeasible constraints) are expected a
 
 #### Initial capabilities
 
-* Convert user intent into structured problem definitions
-* Select among existing workflows
+* Keep optimization kickoff manual from a fully specified deterministic problem
+* Interpret discipline-level success, failure, and substandard outcomes from structured summaries
+* Tune bounded rerun settings between deterministic runs
+* Restart deterministic runs automatically within explicit retry and cost budgets
 * Suggest recovery strategies after failures
 
 #### Constraints
 
 * LLM does not control solver loops
-* All plans must be validated before execution
+* All rerun plans must be validated before execution
+* LLM actions are limited to permitted execution-setting changes
+* Loads, boundary conditions, objectives, constraints, and design intent are not changed automatically
+* CAD or geometry edits are future work, not part of the first phase
 
-**Outcome:** LLM acts as a planner, not a numerical controller
+**Outcome:** LLM acts as a guarded outer-loop restart controller, not a numerical controller
+
+**Current status:** A first local-runtime Phase 7A prototype now exists for
+bounded rerun decisions using a local-first backend abstraction, deterministic
+validation, and a checked-in mock example. API backends and OpenMDAO outer-loop
+support remain future work.
 
 ---
 
@@ -250,7 +260,7 @@ MassTown evolves from:
 1. Scripted deterministic workflows
 2. Structured workflow graphs
 3. Failure-aware orchestration
-4. LLM-assisted planning and adaptation
+4. LLM-assisted outer-loop planning and adaptation
 
 The end state is a system that can:
 
@@ -258,7 +268,7 @@ The end state is a system that can:
 * construct an appropriate workflow
 * execute it robustly
 * diagnose issues
-* iterate intelligently
+* iterate intelligently through bounded reruns
 
 ---
 
@@ -267,11 +277,16 @@ The end state is a system that can:
 * When should OpenMDAO be introduced relative to topology optimization?
 * What is the first coupled discipline to implement (thermal vs CFD-lite vs full CFD)?
 * What metadata must persist across CAD, meshing, and FEA for robust workflows?
-* What is the minimal structured schema required for LLM-generated plans?
+* What is the minimal structured schema required for LLM-generated rerun decisions?
 * How should failure-recovery strategies be represented and validated?
 
 ---
 
 ## Bottom line
 
-MassTown should first become a robust, extensible, deterministic workflow engine for structural optimization problems. Only after that foundation is solid should LLM-based planning be introduced. The value of the system comes from combining strong physics-based tools with structured orchestration, not from replacing them.
+MassTown should first become a robust, extensible, deterministic workflow engine
+for structural optimization problems. LLM-based orchestration should layer on
+top as a guarded outer loop that assesses outcomes, applies bounded rerun
+decisions, and preserves deterministic execution at the core. The value of the
+system comes from combining strong physics-based tools with structured
+orchestration, not from replacing them.

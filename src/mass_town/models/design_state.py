@@ -11,7 +11,7 @@ from mass_town.constraints import (
 from .artifacts import ArtifactRecord
 from .result import Diagnostic
 
-WorkflowStatus = Literal["pending", "running", "recovered", "failed"]
+WorkflowStatus = Literal["pending", "running", "recovered", "failed", "escalated"]
 
 
 class GeometryState(BaseModel):

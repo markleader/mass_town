@@ -402,6 +402,7 @@ class AnalysisSpec(BaseModel):
     analysis_type: Literal["static", "buckling", "modal", "topology_compliance"]
     case_name: str | None = None
     write_solution: bool | None = None
+    settings: dict[str, SchemaScalar] = Field(default_factory=dict)
     load_cases: list[LoadCaseSpec] = Field(default_factory=list)
     buckling_setup: dict[str, SchemaScalar] = Field(default_factory=dict)
     modal_setup: dict[str, SchemaScalar] = Field(default_factory=dict)

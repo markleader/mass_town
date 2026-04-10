@@ -133,6 +133,7 @@ class ProblemSchemaResolver:
             allowable_stress=self.allowable_stress(problem),
             case_name=problem.analysis.case_name or "static",
             analysis_type=self._structural_analysis_type(problem),
+            settings=dict(problem.analysis.settings),
             load_cases={
                 load_case.name: FEALoadCase(loads=dict(load_case.loads))
                 for load_case in problem.analysis.load_cases
@@ -337,6 +338,7 @@ class ProblemSchemaResolver:
                 analysis_type=config.fea.analysis_type,
                 case_name=config.fea.case_name,
                 write_solution=config.fea.write_solution,
+                settings=dict(config.fea.settings),
                 load_cases=load_cases,
                 buckling_setup=(
                     config.fea.buckling_setup.model_dump(mode="json")

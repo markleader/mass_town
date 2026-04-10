@@ -74,3 +74,35 @@ def test_cli_openmdao_runtime_option_selects_openmdao_runtime(tmp_path: Path) ->
     assert result.exit_code == 0
     assert "status=recovered" in result.stdout
     assert calls == ["openmdao"]
+
+
+def test_cli_rejects_openmdao_when_llm_outer_loop_is_enabled(tmp_path: Path) -> None:
+    project_dir = tmp_path / "openmdao-llm-project"
+    project_dir.mkdir()
+    (project_dir / "config.yaml").write_text(
+        "\n".join(
+            [
+                "llm:",
+                "  enabled: true",
+                "  backend: mock",
+                "  model: mock-local",
+                "fea:",
+                "  tool: mock",
+                "  model_input_path: inputs/model.bdf",
+                "initial_tasks:",
+                "  - fea",
+                "",
+            ]
+        )
+    )
+    (project_dir / "design_state.yaml").write_text(
+        "run_id: cli-openmdao-llm\nproblem_name: openmdao\nstatus: pending\niteration: 0\ndesign_variables: {}\nconstraints:\n  max_stress: 180.0\nanalysis_state:\n  passed: false\ndiagnostics: []\ndecision_history: []\nartifacts: []\ntask_history: []\n"
+    )
+    (project_dir / "inputs").mkdir()
+    (project_dir / "inputs" / "model.bdf").write_text("ENDDATA\n")
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["run", str(project_dir), "--runtime", "openmdao"])
+
+    assert result.exit_code != 0
+    assert "only supported with --runtime local" in result.output
